@@ -167,6 +167,17 @@ private func makeClient() throws -> OSCClient {
         #expect(StubServer.seen.last!.body["expect"] as? String == "abc")
     }
 
+    @Test func joinSendsRoomKey() async throws {
+        let room = #"{"room":{"id":"ibaueq2eivdeoscjjjfuytkoj4","name":"secret"},"role":null,"created":false}"#
+        StubServer.reset(loginReplies + [.init(json: room)])
+        let client = try makeClient()
+        _ = try await client.join("secret", key: "hunter2")
+        let body = StubServer.seen.last!.body
+        #expect(body["name"] as? String == "secret")
+        #expect(body["key"] as? String == "hunter2")
+        #expect(body["expect"] == nil)
+    }
+
     @Test func publicCallsDontLogIn() async throws {
         StubServer.reset([.init(json: #"{"rooms":[],"next":null}"#)])
         let client = try makeClient()

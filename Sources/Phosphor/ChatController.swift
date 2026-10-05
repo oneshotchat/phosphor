@@ -72,7 +72,7 @@ final class ChatController {
             do {
                 switch head {
                 case "/help":
-                    note(.info, "/sign text · /edit [id] text · /react [id] 👍 · /unreact [id] 👍 · /join room · /nick name · ⌥↑↓ select · ⌘R read · ⌘T theme · ⌘E crt")
+                    note(.info, "/sign text · /edit [id] text · /react [id] 👍 · /unreact [id] 👍 · /join room [key] · /nick name · ⌥↑↓ select · ⌘R read · ⌘T theme · ⌘E crt")
                 case "/sign":
                     try await send(rest, labels: labels, sign: true)
                 case "/edit", "/sedit":
@@ -84,7 +84,9 @@ final class ChatController {
                     guard let target, !reaction.isEmpty else { return note(.error, "usage: /react [id] 👍") }
                     if head == "/react" { try await session?.react(reaction, to: target) } else { try await session?.unreact(reaction, from: target) }
                 case "/join":
-                    await join(rest.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased())
+                    let (name, key) = split(rest.trimmingCharacters(in: .whitespaces))
+                    await join(name.trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased(),
+                               key: key.isEmpty ? nil : key)
                 case "/nick":
                     try await session?.client.setName(rest)
                     displayName = rest
@@ -130,15 +132,15 @@ final class ChatController {
         return (candidates.last, args)
     }
 
-    private func join(_ name: String) async {
+    private func join(_ name: String, key: String? = nil) async {
         guard let session, !name.isEmpty else { return }
         do {
             let state: RoomState
             do {
-                state = try await session.join(name, expect: knownRooms[name])
+                state = try await session.join(name, expect: knownRooms[name], key: key)
             } catch let error as OSCError where error.code == "room_changed" {
                 note(.error, "#\(name) is now a different room than the one you were in before (the old one expired). Joined the new one.")
-                state = try await session.join(name)
+                state = try await session.join(name, key: key)
             }
             if let old = roomID, old != state.id { try? await session.leave(old) }
             knownRooms[name] = state.id
@@ -146,6 +148,11 @@ final class ChatController {
             focus = nil
             onRoomChanged?()
             note(.info, "joined #\(state.room.name)")
+        } catch let error as OSCError where error.code == "key_required" {
+            note(.error, key == nil ? "#\(name) needs a room key: /join \(name) <key>"
+                                    : "wrong key for #\(name) (too many wrong tries locks the room's key joins for a while)")
+        } catch let error as OSCError where error.code == "invite_required" {
+            note(.error, "#\(name) is invite-only")
         } catch let error as OSCError {
             note(.error, "join #\(name): \(error.code)")
         } catch {

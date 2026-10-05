@@ -30,6 +30,8 @@ public final class ChatSession {
 
     public var me: String { client.identity.fingerprint }
 
+    /// Room keys used to join, so an automatic rejoin works. Memory only, never persisted.
+    private var roomKeys: [String: String] = [:]
     private var socketTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private let pollInterval: Duration
@@ -61,6 +63,7 @@ public final class ChatSession {
     public func join(_ name: String, expect: String? = nil, key: String? = nil, invite: String? = nil) async throws -> RoomState {
         let result = try await client.join(name, expect: expect, key: key, invite: invite)
         let id = result.room.id
+        roomKeys[id] = key
         var state = RoomState(room: result.room, role: result.role)
         state.load(try await client.messages(room: id).messages)
         rooms[id] = state
@@ -72,6 +75,7 @@ public final class ChatSession {
     public func leave(_ room: String) async throws {
         try await client.leave(room: room)
         rooms[room] = nil
+        roomKeys[room] = nil
         emit(.left(room: room, reason: "left"))
     }
 
@@ -205,7 +209,7 @@ public final class ChatSession {
     private func rejoin(_ id: String) async {
         guard let name = rooms[id]?.room.name else { return }
         do {
-            let result = try await client.join(name, expect: id)
+            let result = try await client.join(name, expect: id, key: roomKeys[id])
             rooms[id]?.updateRole(result.role)
             emit(.reloaded(room: id))
             await catchUp(id)

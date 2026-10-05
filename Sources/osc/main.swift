@@ -6,7 +6,7 @@ import OSCCore
 //   osc discover            server info (no login)
 //   osc rooms               the public room browser (no login)
 //   osc whoami              your fingerprint (creates an identity on first use)
-//   osc chat <room>         join and chat; type /help inside
+//   osc chat <room>         join and chat; type /help inside (--key <room key> for keyed rooms)
 //
 // Options: --server <url>  --name <display name>  --identity <path>
 
@@ -23,6 +23,7 @@ func option(_ flag: String) -> String? {
 
 let server = option("--server").flatMap(URL.init(string:)) ?? OSCClient.defaultServer
 let nameOption = option("--name")
+let roomKey = option("--key")
 let identityURL = option("--identity").map { URL(fileURLWithPath: $0) } ?? IdentityFile.defaultURL
 
 /// Chat text is untrusted: strip terminal control sequences before printing.
@@ -67,7 +68,7 @@ case "chat":
     try await Chat(roomName: args[1].trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()).run()
 
 default:
-    print("usage: osc discover | rooms | whoami | chat <room>  [--server url] [--name name] [--identity path]")
+    print("usage: osc discover | rooms | whoami | chat <room> [--key key]  [--server url] [--name name] [--identity path]")
 }
 
 @MainActor
@@ -102,7 +103,7 @@ final class Chat {
         try await session.start()
         let name = await session.client.displayName
         print("you are \(safe(name ?? "anon")) (\(session.me))")
-        let state = try await session.join(roomName)
+        let state = try await session.join(roomName, key: roomKey)
         roomID = state.id
         print("joined #\(safe(state.room.name)) \(state.id)  topic: \(safe(state.room.topic ?? ""))")
         for m in state.orderedMessages.suffix(20) { print(render(m)) }
