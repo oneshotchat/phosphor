@@ -23,3 +23,7 @@ private let b = "b" + String(repeating: "7", count: 51)
 @Test func displayRendersLabels() {
     #expect(MentionText.display("hi <@\(a)>", label: { $0 == a ? "sam" : "?" }) == "hi @sam")
 }
+
+@Test func safeTextStripsEscapesAndBidiOverrides() {
+    #expect(SafeText.clean("a\u{1B}[2Jb\tc\nd\u{202E}e") == "a\u{FFFD}[2Jb c\nd\u{FFFD}e")
+}

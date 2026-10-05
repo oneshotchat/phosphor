@@ -14,6 +14,7 @@ struct PostUniforms {
 }
 
 /// scene (HDR, additive) → phosphor persistence → bloom → CRT composite.
+@MainActor
 final class Renderer: NSObject, MTKViewDelegate {
     var camera = Camera()
     var crtEnabled = true
@@ -22,7 +23,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let atlas: GlyphAtlas
-    private let scene = DemoScene()
+    let scene: RoomScene
+    private let hud: HUD
+    private let controller: ChatController
+    private weak var phosphorView: PhosphorView?
     private var themeIndex = 0
 
     private let linePipeline: MTLRenderPipelineState
@@ -39,7 +43,6 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var accumIndex = 0
     private var bloomLevels: [MTLTexture] = []
 
-    private let startTime = CACurrentMediaTime()
     private var lastFrameTime = CACurrentMediaTime()
     private var effects: Float = 1          // eases between full CRT (1) and clean (0)
     private var eye = SIMD3<Float>(0, 0, 0)
@@ -49,13 +52,17 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     private var theme: Theme { Theme.all[themeIndex] }
 
-    init(view: MTKView) throws {
+    init(view: PhosphorView, controller: ChatController) throws {
         guard let device = view.device, let queue = device.makeCommandQueue() else {
             throw RendererError.noDevice
         }
         self.device = device
         self.queue = queue
         atlas = GlyphAtlas(device: device)
+        scene = RoomScene(atlas: atlas)
+        hud = HUD(atlas: atlas)
+        self.controller = controller
+        phosphorView = view
 
         view.colorPixelFormat = .bgra8Unorm_srgb
         view.clearColor = MTLClearColorMake(0, 0, 0, 1)
@@ -93,7 +100,6 @@ final class Renderer: NSObject, MTKViewDelegate {
             readingMode = snapshot.readingMode
             themeIndex = snapshot.theme % Theme.all.count
         }
-        print("Phosphor: drag to orbit, scroll to zoom, R reading mode, T theme, space CRT on/off")
     }
 
     func nextTheme() {
@@ -145,22 +151,20 @@ final class Renderer: NSObject, MTKViewDelegate {
         let now = CACurrentMediaTime()
         let dt = Float(min(now - lastFrameTime, 0.1))
         lastFrameTime = now
-        let time = Float(now - startTime)
+        let time = AppClock.now
 
         effects += ((crtEnabled && !readingMode ? 1 : 0) - effects) * min(1, dt * 6)
 
-        // Camera: orbit, or snap face-on to the newest message in reading mode.
+        // Camera: orbit, or face the selected (else newest) message head-on in reading mode.
         if !readingMode { camera.yaw += dt * 0.04 }
         let aspect = Float(size.width / size.height)
         let fovy: Float = 0.9
         var desiredEye = camera.eye, desiredTarget = camera.target
-        if readingMode {
-            let newest = scene.newestVisibleMessage(time: time)
-            let panel = scene.panelFrame(newest)
-            // Back off until the whole panel fits across the screen, with a margin.
-            let halfWidth = scene.panelWidth(newest, atlas: atlas) / 2 * 1.15
-            let distance = max(4, halfWidth / (tan(fovy / 2) * aspect))
-            desiredEye = panel.center + panel.normal * distance
+        if readingMode, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
+            // Back off until the whole panel fits on screen, with a margin.
+            let fitWidth = panel.width / 2 * 1.2 / (tan(fovy / 2) * aspect)
+            let fitHeight = panel.height / 2 * 1.6 / tan(fovy / 2)
+            desiredEye = panel.center + panel.normal * max(4, fitWidth, fitHeight)
             desiredTarget = panel.center
         }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
@@ -175,25 +179,29 @@ final class Renderer: NSObject, MTKViewDelegate {
         let cameraRight = SIMD3(viewMatrix.columns.0.x, viewMatrix.columns.1.x, viewMatrix.columns.2.x)
         let cameraUp = SIMD3(viewMatrix.columns.0.y, viewMatrix.columns.1.y, viewMatrix.columns.2.y)
 
+        let pixelScale = Float(view.window?.backingScaleFactor ?? 2)
         var geometry = FrameGeometry()
-        geometry.pixelScale = Float(view.window?.backingScaleFactor ?? 2)
-        scene.build(into: &geometry, atlas: atlas, time: time, theme: theme,
-                    eye: eye, cameraRight: cameraRight, cameraUp: cameraUp)
+        geometry.pixelScale = pixelScale
+        scene.build(into: &geometry, state: controller.state, theme: theme, me: controller.me, origin: controller.origin,
+                    focus: controller.focus, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
+                    followCamera: !readingMode)
 
-        // 1. Scene: everything additive into HDR; draw order doesn't matter.
+        // HUD in drawable pixels, origin bottom-left.
+        var hudGeometry = FrameGeometry()
+        hudGeometry.pixelScale = pixelScale
+        let viewport = SIMD2(Float(size.width), Float(size.height))
+        if let input = phosphorView?.input {
+            hud.build(into: &hudGeometry, viewport: viewport, scale: pixelScale, controller: controller, input: input, theme: theme)
+        }
+        var hudUniforms = FrameUniforms(
+            viewProj: simd_float4x4(columns: (SIMD4(2 / viewport.x, 0, 0, 0), SIMD4(0, 2 / viewport.y, 0, 0),
+                                              SIMD4(0, 0, 0, 0), SIMD4(-1, -1, 0.5, 1))),
+            params: SIMD4(viewport.x, viewport.y, 12, 55))
+
+        // 1. Scene, then HUD: everything additive into HDR, so draw order doesn't matter.
         if let enc = pass(cb, sceneTexture, clear: true) {
-            enc.setVertexBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 1)
-            if !geometry.lines.isEmpty, let buffer = makeBuffer(geometry.lines) {
-                enc.setRenderPipelineState(linePipeline)
-                enc.setVertexBuffer(buffer, offset: 0, index: 0)
-                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: geometry.lines.count)
-            }
-            if !geometry.glyphs.isEmpty, let buffer = makeBuffer(geometry.glyphs) {
-                enc.setRenderPipelineState(glyphPipeline)
-                enc.setVertexBuffer(buffer, offset: 0, index: 0)
-                enc.setFragmentTexture(atlas.texture, index: 0)
-                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: geometry.glyphs.count)
-            }
+            draw(geometry, uniforms: &uniforms, with: enc)
+            draw(hudGeometry, uniforms: &hudUniforms, with: enc)
             enc.endEncoding()
         }
 
@@ -265,6 +273,21 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         cb.present(drawable)
         cb.commit()
+    }
+
+    private func draw(_ geometry: FrameGeometry, uniforms: inout FrameUniforms, with enc: MTLRenderCommandEncoder) {
+        enc.setVertexBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 1)
+        if !geometry.lines.isEmpty, let buffer = makeBuffer(geometry.lines) {
+            enc.setRenderPipelineState(linePipeline)
+            enc.setVertexBuffer(buffer, offset: 0, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: geometry.lines.count)
+        }
+        if !geometry.glyphs.isEmpty, let buffer = makeBuffer(geometry.glyphs) {
+            enc.setRenderPipelineState(glyphPipeline)
+            enc.setVertexBuffer(buffer, offset: 0, index: 0)
+            enc.setFragmentTexture(atlas.texture, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: geometry.glyphs.count)
+        }
     }
 
     private func pass(_ cb: MTLCommandBuffer, _ target: MTLTexture, clear: Bool, load: Bool = false) -> MTLRenderCommandEncoder? {

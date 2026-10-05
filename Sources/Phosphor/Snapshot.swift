@@ -1,3 +1,4 @@
+import OSCCore
 import AppKit
 import ImageIO
 import Metal
@@ -63,5 +64,42 @@ final class Snapshot {
         CGImageDestinationFinalize(dest)
         print("Snapshot: wrote \(path)")
         DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+}
+
+/// Dev tool: feed lines into the input as if typed, from a FIFO or file, so the app's
+/// own send path can be driven by a script.
+///
+///     PHOSPHOR_INPUT=/tmp/phosphor.in swift run Phosphor conformance
+@MainActor
+enum DevInput {
+    static func startIfRequested(controller: ChatController) {
+        guard let path = ProcessInfo.processInfo.environment["PHOSPHOR_INPUT"] else { return }
+        setvbuf(stdout, nil, _IOLBF, 0)
+        // Echo the room as text so a script can follow along.
+        let previous = controller.onEvent
+        controller.onEvent = { event in
+            previous?(event)
+            switch event.payload {
+            case .messageCreated(let m), .messageEdited(let m):
+                let label = controller.state?.labels[m.author.identity] ?? m.author.name
+                let text = MentionText.display(m.text) { controller.state?.labels[$0] ?? String($0.prefix(8)) }
+                print("[\(m.id)] \(SafeText.clean(label)): \(SafeText.clean(text))")
+            case .reactionAdded(let r):
+                print("· reaction \(SafeText.clean(r.reaction)) on [\(r.messageId)]")
+            default:
+                break
+            }
+        }
+        Task.detached {
+            guard let handle = FileHandle(forReadingAtPath: path) else { return }
+            for try await line in handle.bytes.lines {
+                await MainActor.run {
+                    var labels: [String: String] = [:]
+                    for (fp, label) in controller.state?.labels ?? [:] { labels[label] = fp }
+                    controller.submit(line, labels: labels)
+                }
+            }
+        }
     }
 }

@@ -1,9 +1,11 @@
 import AppKit
 import MetalKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var renderer: Renderer!
+    private let controller = ChatController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -13,12 +15,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let view = PhosphorView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), device: device)
         do {
-            renderer = try Renderer(view: view)
+            renderer = try Renderer(view: view, controller: controller)
         } catch {
             fatalError("Renderer setup failed: \(error)")
         }
         view.renderer = renderer
+        view.controller = controller
         view.delegate = renderer
+        controller.onEvent = { [renderer] event in renderer?.scene.handle(event) }
+        controller.onRoomChanged = { [renderer] in renderer?.scene.reset() }
 
         window = NSWindow(
             contentRect: view.frame,
@@ -33,42 +38,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Room: first argument or PHOSPHOR_ROOM, else #lobby.
+        let env = ProcessInfo.processInfo.environment
+        let room = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"] ?? "lobby"
+        let server = env["PHOSPHOR_SERVER"].flatMap(URL.init(string:))
+        if let server { controller.start(room: room, server: server) } else { controller.start(room: room) }
+        DevInput.startIfRequested(controller: controller)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
+    @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
+    @objc func toggleCRT(_ sender: Any?) { renderer.crtEnabled.toggle() }
+
     private func buildMenu() {
         let main = NSMenu()
-        let appItem = NSMenuItem()
-        main.addItem(appItem)
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit Phosphor", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appItem.submenu = appMenu
-        NSApp.mainMenu = main
-    }
-}
-
-/// Owns input; the renderer owns everything else.
-final class PhosphorView: MTKView {
-    weak var renderer: Renderer?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func mouseDragged(with event: NSEvent) {
-        renderer?.camera.orbit(dx: Float(event.deltaX), dy: Float(event.deltaY))
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        renderer?.camera.zoom(by: Float(event.scrollingDeltaY) * (event.hasPreciseScrollingDeltas ? 0.01 : 0.1))
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard let renderer else { return }
-        switch event.charactersIgnoringModifiers?.lowercased() {
-        case " ": renderer.crtEnabled.toggle()
-        case "t": renderer.nextTheme()
-        case "r": renderer.readingMode.toggle()
-        default: super.keyDown(with: event)
+        func submenu(_ title: String, _ items: [NSMenuItem]) {
+            let item = NSMenuItem()
+            let menu = NSMenu(title: title)
+            items.forEach(menu.addItem)
+            item.submenu = menu
+            main.addItem(item)
         }
+        func item(_ title: String, _ action: Selector, _ key: String, target: AnyObject? = nil) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.target = target
+            return i
+        }
+        submenu("Phosphor", [item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q")])
+        submenu("Edit", [item("Paste", #selector(PhosphorView.paste(_:)), "v")])
+        submenu("View", [
+            item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),
+            item("Next Theme", #selector(nextTheme(_:)), "t", target: self),
+            item("CRT Effects", #selector(toggleCRT(_:)), "e", target: self),
+        ])
+        NSApp.mainMenu = main
     }
 }
