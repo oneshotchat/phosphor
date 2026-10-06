@@ -52,9 +52,20 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var activeScene: RoomScene? { controller.activeRoom.flatMap { scenes[$0] } }
     private let hud: HUD
     private let browserScene: BrowserScene
-    /// Where each unjoined room's ghost stands this frame; a room joined from the browser
-    /// starts from there.
-    private var ghostCenters: [String: SIMD3<Float>] = [:]
+    /// Where each unjoined room stands in the overview this frame (as a room origin); a
+    /// room joined from there starts from that spot.
+    private var ghostOrigins: [String: SIMD3<Float>] = [:]
+    /// The overview's row of unjoined rooms: how far it has slid sideways, and how visible
+    /// it is (it fades in and out with the overview, keeping the last rooms while fading).
+    private var ghostScroll: Float = 0
+    private var ghostAlpha: Float = 0
+    private var ghostRooms: [Room] = []
+    /// The overview camera, kept so the row can be fitted to the eventual view, not the
+    /// one still easing toward it.
+    private static let overviewTarget = SIMD3<Float>(0, 3, 8)
+    private static let overviewPitch: Float = 0.34
+    private static let overviewDistance: Float = 60
+    private static let ghostRowZ: Float = 18
     private let controller: ChatController
     private weak var phosphorView: PhosphorView?
     private var themeIndex = 0
@@ -208,9 +219,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         activeScene?.isLifted = camera.liftTarget > 1
         var desiredEye = camera.eye, desiredTarget = camera.center
         if controller.browser.isOpen {
-            // Browsing: pull up and back to take in every room, joined or not.
-            desiredTarget = SIMD3(0, 1.5, -20)
-            desiredEye = desiredTarget + SIMD3(0, sin(Float(0.55)), cos(Float(0.55))) * 78
+            // Overview: pull up and back, with the rooms you could join in a row in front.
+            desiredTarget = Self.overviewTarget
+            desiredEye = desiredTarget + SIMD3(0, sin(Self.overviewPitch), cos(Self.overviewPitch)) * Self.overviewDistance
         } else if readingMode, let scene = activeScene, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
             // Back off until the whole panel fits on screen, with a margin.
             let fitWidth = panel.width / 2 * 1.2 / (tan(fovy / 2) * aspect)
@@ -254,7 +265,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                         activity: controller.activity[room] ?? ChatController.Activity())
         }
         keepScrollbackSteady()
-        buildGhosts(into: &geometry)
+        buildGhosts(into: &geometry, dt: dt, aspect: aspect, fovy: fovy)
 
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()
@@ -414,7 +425,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                 // returns to the same place.
                 active ? .zero : rowSlot(i, of: count)
             }
-            let joinedFromBrowser = placements[id] == nil ? ghostCenters[id] : nil
+            let joinedFromBrowser = placements[id] == nil ? ghostOrigins[id] : nil
             var p = placements[id] ?? RoomScene.Placement(origin: joinedFromBrowser ?? target)
             p.origin += (target - p.origin) * (layout == .row ? min(1, dt * rowSpeed) : follow)
             // Row walls face straight ahead, square with the grid; ring cylinders turn their
@@ -432,7 +443,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             scene.targetBackground = active ? 0 : 1
             if scenes[id] == nil {
                 scene.settle()
-                if joinedFromBrowser != nil { scene.startRolledUp() }
+                if joinedFromBrowser != nil { scene.startAsGhost(rolledUp: layout == .ring) }
                 scenes[id] = scene
             }
             scene.isActive = active
@@ -467,36 +478,47 @@ final class Renderer: NSObject, MTKViewDelegate {
         return SIMD3(x, 0, z)
     }
 
-    /// Unjoined listed rooms around the outside: an outer ring beyond the joined ring, or
-    /// rows behind the joined row. While browsing they're the filtered results.
-    private func buildGhosts(into g: inout FrameGeometry) {
+    /// The overview's rooms you haven't joined: a row in front of the active room, in the
+    /// current layout's form. If they don't all fit across the view, the row slides to keep
+    /// the selected one on screen.
+    private func buildGhosts(into g: inout FrameGeometry, dt: Float, aspect: Float, fovy: Float) {
         let browser = controller.browser
-        let rooms: [Room] = browser.isOpen
-            ? Array(browser.entries.compactMap { if case .listed(let room) = $0 { room } else { nil } }.prefix(16))
-            : Array(controller.unjoinedListed.prefix(12))
-        let count = rooms.count
-        var centers: [String: SIMD3<Float>] = [:]
-        let joined = max(controller.rooms.count, 1)
-        for (i, room) in rooms.enumerated() {
-            switch layout {
-            case .ring:
-                // An arc round the back of the joined ring, from beside the active wall on
-                // one side to the other, so none stand between you and the active room.
-                let inner = max(22, Float(joined) * 24 / (2 * .pi))
-                let outer = inner + 20
-                let a = Float.pi * (0.35 + 1.3 * (Float(i) + 0.5) / Float(count))
-                centers[room.id] = SIMD3(sin(a) * outer, 0, cos(a) * outer - inner)
-            case .row:
-                let perRow = 6
-                let rowZ = rowSlot(0, of: joined).z
-                let line = i / perRow, column = i % perRow
-                let inLine = min(perRow, count - line * perRow)
-                centers[room.id] = SIMD3((Float(column) - Float(inLine - 1) / 2) * 16, 0, rowZ - 26 * Float(line + 1))
-            }
+        if browser.isOpen {
+            ghostRooms = browser.entries.compactMap { if case .listed(let room) = $0 { room } else { nil } }
         }
-        ghostCenters = centers
-        browserScene.build(into: &g, rooms: rooms.compactMap { room in centers[room.id].map { (room, $0) } },
-                           selected: browser.isOpen ? browser.selected?.id : nil, browsing: browser.isOpen, theme: theme, eye: eye)
+        ghostAlpha += ((browser.isOpen ? 1 : 0) - ghostAlpha) * min(1, dt * 4)
+        guard ghostAlpha > 0.01 else {
+            ghostScroll = 0
+            return
+        }
+
+        let pitch: Float = 20                                   // a room's width plus two squares
+        let count = ghostRooms.count
+        let selected = browser.selected?.id
+        let selectedIndex = ghostRooms.firstIndex { $0.id == selected }
+        // How much of the row the overview camera sees.
+        let eyeZ = Self.overviewTarget.z + cos(Self.overviewPitch) * Self.overviewDistance
+        let halfView = tan(fovy / 2) * aspect * (eyeZ - Self.ghostRowZ) * 0.92
+        var target: Float = 0
+        if Float(count) * pitch > halfView * 2, let i = selectedIndex {
+            let x = (Float(i) - Float(count - 1) / 2) * pitch
+            let limit = halfView - pitch * 0.55
+            target = simd_clamp(ghostScroll, -limit - x, limit - x)
+        }
+        ghostScroll += (target - ghostScroll) * min(1, dt * 6)
+
+        var placed: [BrowserScene.Placed] = []
+        var origins: [String: SIMD3<Float>] = [:]
+        for (i, room) in ghostRooms.enumerated() {
+            let x = (Float(i) - Float(count - 1) / 2) * pitch + ghostScroll
+            guard abs(x) < halfView + pitch * 1.5 else { continue }    // well off screen
+            let origin = SIMD3<Float>(x, 0, Self.ghostRowZ + (layout == .ring ? BrowserScene.width / 2 : 0))
+            origins[room.id] = origin
+            placed.append(BrowserScene.Placed(room: room, origin: origin))
+        }
+        ghostOrigins = origins
+        browserScene.build(into: &g, rooms: placed, selected: browser.isOpen ? selected : nil,
+                           cylinders: layout == .ring, alpha: ghostAlpha, theme: theme)
     }
 
     /// The highest the view may fly: the top of everything loaded.

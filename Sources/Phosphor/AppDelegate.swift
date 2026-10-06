@@ -64,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if env["PHOSPHOR_BROWSE"] != nil {
             view.toggleBrowser()
             if let query = env["PHOSPHOR_BROWSE_QUERY"] { controller.browser.setQuery(query) }
+            // …move the selection down this many places after a delay (the listing loads first).
+            if let moves = env["PHOSPHOR_BROWSE_MOVE"].flatMap(Int.init) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [controller] in
+                    for _ in 0..<moves { controller.browser.move(1) }
+                }
+            }
             // …and press Enter on the selection after a delay.
             if let delay = env["PHOSPHOR_BROWSE_JOIN"].flatMap(Double.init) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [controller] in controller.browser.submit("") }

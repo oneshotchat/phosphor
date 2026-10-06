@@ -4,7 +4,7 @@ import simd
 // GPU instance layouts; must match Shaders.swift.
 struct LineInstance {
     var a: SIMD4<Float>      // xyz, w = width in pixels
-    var b: SIMD4<Float>
+    var b: SIMD4<Float>      // xyz, w = intensity at b relative to a
     var color: SIMD4<Float>  // rgb, a = intensity
 }
 
@@ -66,9 +66,11 @@ struct FrameGeometry {
     /// Multiplies every intensity; background rooms draw with less.
     var gain: Float = 1
 
-    mutating func line(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ color: SIMD3<Float>, intensity: Float = 1, width: Float = 1.5) {
-        guard intensity * gain > 0.001 else { return }
-        lines.append(LineInstance(a: SIMD4(a, width * pixelScale), b: SIMD4(b, 0), color: SIMD4(color, intensity * gain)))
+    /// `endIntensity` (relative to `intensity`) fades the line along its length.
+    mutating func line(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ color: SIMD3<Float>, intensity: Float = 1, width: Float = 1.5,
+                       endIntensity: Float = 1) {
+        guard intensity * gain * max(1, endIntensity) > 0.001 else { return }
+        lines.append(LineInstance(a: SIMD4(a, width * pixelScale), b: SIMD4(b, endIntensity), color: SIMD4(color, intensity * gain)))
     }
 
     /// Draws the first `fraction` of the polyline's length: the beam drawing it on.
@@ -123,11 +125,12 @@ struct FrameGeometry {
         var strength: Float = 1
     }
 
-    /// The floor: a grid fading into the distance. Ripples lift it into ridges that travel
-    /// outward and glow as they pass. This runs every frame over thousands of points, so
-    /// it's plain scalar maths: lines no wave can reach stay one segment, and points away
+    /// The floor: a grid that fades out softly toward its edges (and reaches further back
+    /// than forward). Ripples lift it into ridges that travel outward and glow as they pass.
+    /// This runs every frame over thousands of points, so it's plain scalar maths: lines are
+    /// split into a few fading pieces, finely only where a wave is passing, and points away
     /// from every wavefront skip the wave maths.
-    mutating func floorGrid(theme: Theme, ripples: [Ripple] = [], time: Float = 0, extent: Float = 60) {
+    mutating func floorGrid(theme: Theme, ripples: [Ripple] = [], time: Float = 0) {
         struct Wave { var x, z, front, amplitude: Float }
         let width: Float = 1.4, reach: Float = 5          // a wavefront's half-width, and where it's ~0
         var waves: [Wave] = []
@@ -146,41 +149,54 @@ struct FrameGeometry {
             }
             return y
         }
+        // Brightness by distance from the middle of the floor (a little behind the rooms).
+        let xRange: ClosedRange<Float> = -84...84, zRange: ClosedRange<Float> = -130...50
+        func fade(_ x: Float, _ z: Float) -> Float {
+            let dx = x, dz = (z + 25) * 0.8
+            return 1 - smoothstep(42, 92, (dx * dx + dz * dz).squareRoot())
+        }
         let flat = theme.grid
+        let base: Float = 0.45
         // `fixed` is the line's x (running along z) or z (running along x).
         func gridLine(fixed: Float, alongZ: Bool) {
             func point(_ t: Float) -> SIMD3<Float> { alongZ ? SIMD3(fixed, 0, t) : SIMD3(t, 0, fixed) }
+            func fadeAt(_ t: Float) -> Float { alongZ ? fade(fixed, t) : fade(t, fixed) }
+            let range = alongZ ? zRange : xRange
             let touched = waves.contains { abs(fixed - (alongZ ? $0.x : $0.z)) < $0.front + reach }
-            guard touched else {
-                line(point(-extent), point(extent), flat, intensity: 0.45, width: 1)
-                return
-            }
-            var runStart: Float?
-            var previous = -extent
-            var previousLift = alongZ ? height(fixed, previous) : height(previous, fixed)
-            var t = -extent + 1
-            while t <= extent {
-                let lift = alongZ ? height(fixed, t) : height(t, fixed)
-                if abs(lift) < 0.01, abs(previousLift) < 0.01 {
-                    if runStart == nil { runStart = previous }
-                } else {
-                    if let start = runStart { line(point(start), point(previous), flat, intensity: 0.45, width: 1) }
-                    runStart = nil
-                    let crest = min(1, max(abs(lift), abs(previousLift)) * 2.5)
-                    line(point(previous) + SIMD3(0, previousLift, 0), point(t) + SIMD3(0, lift, 0),
-                         simd_mix(flat, theme.accent, SIMD3(repeating: crest)), intensity: 0.45 + crest * 1.4, width: 1 + crest)
+            let step: Float = touched ? 1 : 6
+            var t = range.lowerBound
+            var lift0: Float = touched ? (alongZ ? height(fixed, t) : height(t, fixed)) : 0
+            var fade0 = fadeAt(t)
+            while t < range.upperBound {
+                let t1 = min(t + step, range.upperBound)
+                let lift1: Float = touched ? (alongZ ? height(fixed, t1) : height(t1, fixed)) : 0
+                let fade1 = fadeAt(t1)
+                if max(fade0, fade1) > 0.005 {
+                    let crest = min(1, max(abs(lift0), abs(lift1)) * 2.5)
+                    let color = crest > 0 ? simd_mix(flat, theme.accent, SIMD3(repeating: crest)) : flat
+                    let i0 = (base + crest * 1.4) * fade0, i1 = (base + crest * 1.4) * fade1
+                    if i0 > 0.001 {
+                        line(point(t) + SIMD3(0, lift0, 0), point(t1) + SIMD3(0, lift1, 0), color,
+                             intensity: i0, width: 1 + crest, endIntensity: i1 / i0)
+                    } else {
+                        line(point(t1) + SIMD3(0, lift1, 0), point(t) + SIMD3(0, lift0, 0), color,
+                             intensity: i1, width: 1 + crest, endIntensity: 0)
+                    }
                 }
-                previous = t
-                previousLift = lift
-                t += 1
+                t = t1
+                lift0 = lift1
+                fade0 = fade1
             }
-            if let start = runStart { line(point(start), point(previous), flat, intensity: 0.45, width: 1) }
         }
-        var c = -extent
-        while c <= extent {
-            gridLine(fixed: c, alongZ: true)
-            gridLine(fixed: c, alongZ: false)
-            c += 2
+        var x = xRange.lowerBound
+        while x <= xRange.upperBound {
+            gridLine(fixed: x, alongZ: true)
+            x += 2
+        }
+        var z = zRange.lowerBound
+        while z <= zRange.upperBound {
+            gridLine(fixed: z, alongZ: false)
+            z += 2
         }
     }
 

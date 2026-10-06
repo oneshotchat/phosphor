@@ -18,7 +18,7 @@ static float depthFade(constant FrameUniforms &u, float w) {
 
 struct LineInstance {
     float4 a;       // xyz, w = width in pixels
-    float4 b;       // xyz
+    float4 b;       // xyz, w = intensity at b relative to a (fades along the line)
     float4 color;   // rgb (HDR), a = intensity
 };
 
@@ -69,7 +69,7 @@ vertex LineOut line_vertex(uint vid [[vertex_id]],
     o.local = float2((atB ? len : 0.0) + along, c.y * ext);
     o.length = len;
     o.halfWidth = hw;
-    o.color = L.color.rgb * L.color.a * depthFade(u, clip.w);
+    o.color = L.color.rgb * L.color.a * (atB ? L.b.w : 1.0) * depthFade(u, clip.w);
     return o;
 }
 

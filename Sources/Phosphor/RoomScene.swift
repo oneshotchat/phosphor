@@ -124,10 +124,10 @@ final class RoomScene {
         background = targetBackground
     }
 
-    /// A room joined from the browser starts as a rolled-up background cylinder, where its
-    /// ghost stood, and unrolls into place from there.
-    func startRolledUp() {
-        curl = 1
+    /// A room joined from the overview starts in its empty form where it stood there
+    /// (a cylinder in the ring, a wall in the row) and moves and unrolls into place.
+    func startAsGhost(rolledUp: Bool) {
+        curl = rolledUp ? 1 : 0
         background = 1
     }
 
