@@ -114,13 +114,71 @@ struct FrameGeometry {
         }
     }
 
-    /// The floor: a grid fading into the distance.
-    mutating func floorGrid(theme: Theme, extent: Float = 60) {
-        var x = -extent
-        while x <= extent {
-            line([x, 0, -extent], [x, 0, extent], theme.grid, intensity: 0.45, width: 1)
-            line([-extent, 0, x], [extent, 0, x], theme.grid, intensity: 0.45, width: 1)
-            x += 2
+    /// A wave rolling out across the floor from a room's base.
+    struct Ripple {
+        var center: SIMD3<Float>
+        var radius: Float          // the room's footprint; waves start at its edge
+    }
+
+    /// The floor: a grid fading into the distance. Ripples lift it into ridges that travel
+    /// outward and glow as they pass. This runs every frame over thousands of points, so
+    /// it's plain scalar maths: lines no wave can reach stay one segment, and points away
+    /// from every wavefront skip the wave maths.
+    mutating func floorGrid(theme: Theme, ripples: [Ripple] = [], time: Float = 0, extent: Float = 60) {
+        struct Wave { var x, z, front, amplitude: Float }
+        let width: Float = 1.4, reach: Float = 5          // a wavefront's half-width, and where it's ~0
+        var waves: [Wave] = []
+        for r in ripples {
+            for k in 0..<2 {
+                let phase = (time / 2.6 + Float(k) * 0.5).truncatingRemainder(dividingBy: 1)
+                let amplitude = 0.6 * powf(1 - phase, 1.5)
+                if amplitude > 0.01 { waves.append(Wave(x: r.center.x, z: r.center.z, front: r.radius + phase * 26, amplitude: amplitude)) }
+            }
+        }
+        func height(_ x: Float, _ z: Float) -> Float {
+            var y: Float = 0
+            for w in waves {
+                let dx = x - w.x, dz = z - w.z
+                let u = ((dx * dx + dz * dz).squareRoot() - w.front) / width
+                if u > -reach / width, u < reach / width { y += w.amplitude * cos(u * 2) * exp(-u * u) }
+            }
+            return y
+        }
+        let flat = theme.grid
+        // `fixed` is the line's x (running along z) or z (running along x).
+        func gridLine(fixed: Float, alongZ: Bool) {
+            func point(_ t: Float) -> SIMD3<Float> { alongZ ? SIMD3(fixed, 0, t) : SIMD3(t, 0, fixed) }
+            let touched = waves.contains { abs(fixed - (alongZ ? $0.x : $0.z)) < $0.front + reach }
+            guard touched else {
+                line(point(-extent), point(extent), flat, intensity: 0.45, width: 1)
+                return
+            }
+            var runStart: Float?
+            var previous = -extent
+            var previousLift = alongZ ? height(fixed, previous) : height(previous, fixed)
+            var t = -extent + 1
+            while t <= extent {
+                let lift = alongZ ? height(fixed, t) : height(t, fixed)
+                if abs(lift) < 0.01, abs(previousLift) < 0.01 {
+                    if runStart == nil { runStart = previous }
+                } else {
+                    if let start = runStart { line(point(start), point(previous), flat, intensity: 0.45, width: 1) }
+                    runStart = nil
+                    let crest = min(1, max(abs(lift), abs(previousLift)) * 2.5)
+                    line(point(previous) + SIMD3(0, previousLift, 0), point(t) + SIMD3(0, lift, 0),
+                         simd_mix(flat, theme.accent, SIMD3(repeating: crest)), intensity: 0.45 + crest * 1.4, width: 1 + crest)
+                }
+                previous = t
+                previousLift = lift
+                t += 1
+            }
+            if let start = runStart { line(point(start), point(previous), flat, intensity: 0.45, width: 1) }
+        }
+        var c = -extent
+        while c <= extent {
+            gridLine(fixed: c, alongZ: true)
+            gridLine(fixed: c, alongZ: false)
+            c += 2
         }
     }
 

@@ -93,6 +93,10 @@ final class RoomScene {
         var normal = SIMD3<Float>(0, 0, 1)       // the way the wall faces
     }
     var placement = Placement()
+    /// The middle of the room's footprint on the floor (the cylinder's axis when rolled up).
+    var floorCenter: SIMD3<Float> {
+        placement.origin - placement.normal * (wallWidth / 2) * curl     // rolled up, the radius is half the wall
+    }
     /// Background rooms glow less.
     var dim: Float = 1
     var isActive = true
@@ -256,11 +260,10 @@ final class RoomScene {
                               intensity: min(Float(activity.unread), 8) * 0.25 * background, width: 2.5)
             }
             if activity.mentioned {
-                g.gain = 1
-                let center = placement.origin - n * surface.cylinderRadius * curl
-                let pulse = 1.4 + 0.8 * sin(now * 4)
-                g.line(center, center + SIMD3(0, 22, 0), theme.accent, intensity: pulse * background, width: 3)
-                g.gain = dim
+                // You were mentioned: the base glows, and the renderer ripples the floor
+                // outward from `floorCenter`.
+                g.surfaceLine(surface, s0: -surface.width / 2, s1: surface.width / 2, y: 0.05, theme.accent,
+                              intensity: (0.9 + 0.4 * sin(now * 2.6)) * background, width: 2.2)
             }
         }
     }

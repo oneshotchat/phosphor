@@ -223,8 +223,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         let pixelScale = Float(view.window?.backingScaleFactor ?? 2)
         var geometry = FrameGeometry()
         geometry.pixelScale = pixelScale
-        geometry.floorGrid(theme: theme)
         arrangeRooms(dt: dt, time: time)
+        // Rooms in the background that mentioned you send waves across the floor.
+        let ripples = controller.rooms.compactMap { room -> FrameGeometry.Ripple? in
+            guard room != controller.activeRoom, controller.activity[room]?.mentioned == true, let scene = scenes[room] else { return nil }
+            return FrameGeometry.Ripple(center: scene.floorCenter, radius: scene.wallWidth / 2)
+        }
+        geometry.floorGrid(theme: theme, ripples: ripples, time: time)
         if let lift = pendingSnapshotLift, time > 1.5 {
             camera.liftTarget = lift
             pendingSnapshotLift = nil
