@@ -243,7 +243,8 @@ final class ChatController {
         return String(String(describing: error).prefix(60))
     }
 
-    func startDemo(speakers: Int, name: String) {
+    /// `paceScale` below 1 makes every room chattier.
+    func startDemo(speakers: Int, name: String, paceScale: Double = 1) {
         let me = Identity.generate().fingerprint
         demoMe = me
         demoName = name
@@ -255,7 +256,8 @@ final class ChatController {
             ("offtopic", "everything else", 1, 9000...20000),
         ]
         for (name, topic, speakers, pace) in specs {
-            let feed = DemoFeed(name: name, topic: topic, me: me, myName: self.demoName, speakers: speakers, pace: pace)
+            let scaled = Int(Double(pace.lowerBound) * paceScale)...Int(Double(pace.upperBound) * paceScale)
+            let feed = DemoFeed(name: name, topic: topic, me: me, myName: self.demoName, speakers: speakers, pace: scaled)
             feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
             feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
             demos[feed.roomID] = feed

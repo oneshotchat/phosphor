@@ -67,15 +67,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.launchIdentity = URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath)
             args.removeSubrange(i...(i + 1))
         }
-        let touring = args.contains("--tour")
+        let fastTour = args.contains("--tour-fast")
+        let touring = args.contains("--tour") || fastTour
         if args.contains("--demo") || touring || env["PHOSPHOR_DEMO"] != nil {
             controller.startDemo(speakers: env["PHOSPHOR_DEMO_SPEAKERS"].flatMap(Int.init) ?? 3,
-                                 name: env["PHOSPHOR_DEMO_NAME"] ?? "you")
+                                 name: env["PHOSPHOR_DEMO_NAME"] ?? "you",
+                                 paceScale: fastTour ? 0.45 : 1)        // busier rooms for the ad cut
             if let index = env["PHOSPHOR_ACTIVE"].flatMap(Int.init) { controller.activate(index: index) }
             if touring {
                 // --tour: the demo plays its own running order, for recording a video.
-                tour = DemoTour(controller: controller, renderer: renderer, view: view)
-                tour?.start(after: env["PHOSPHOR_TOUR_LEAD"].flatMap(Double.init) ?? 6)
+                tour = DemoTour(controller: controller, renderer: renderer, view: view, fast: fastTour)
+                tour?.start(after: env["PHOSPHOR_TOUR_LEAD"].flatMap(Double.init) ?? (fastTour ? 4 : 6))
             }
         } else {
             let room = args.first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"]
