@@ -3,8 +3,9 @@ import OSCCore
 import simd
 
 /// One room drawn on a `Surface`: messages appear at the bottom and rise, fading into the
-/// sky; recent speakers stand along the base in lanes, with everyone else in a dim gallery
-/// behind. A new message is beamed up from its author before it's written.
+/// sky; theirs on the left, yours on the right. Recent speakers stand along the base the
+/// same way, with everyone else in a dim gallery behind. A new message is beamed up from
+/// its author before it's written.
 ///
 /// The room is flat (readable) when active and can roll up into a cylinder (`curl`) for
 /// the background; both use the same layout.
@@ -25,7 +26,7 @@ final class RoomScene {
         var joinedAt: Float = -100
         var leftAt: Float?
         var leaveReason: String?
-        /// Eased position along the wall, so lanes slide when they change.
+        /// Eased position along the wall, so people slide when the speakers change.
         var s: Float?
         var galleryOffset: Float
     }
@@ -71,8 +72,8 @@ final class RoomScene {
     private var people: [String: PersonVisual] = [:]
     private var panels: [Int: PanelVisual] = [:]
     private var beams: [Beam] = []
-    /// Other people's lanes in the order they first spoke; stable so lanes don't shuffle.
-    private var laneOrder: [String] = []
+    /// Other speakers in the order they first spoke; stable so nobody shuffles.
+    private var speakerOrder: [String] = []
     private var lastBuild: Float = 0
     private var charWidths: [Character: Float] = [:]
 
@@ -123,7 +124,7 @@ final class RoomScene {
         people = [:]
         panels = [:]
         beams = []
-        laneOrder = []
+        speakerOrder = []
     }
 
     func handle(_ event: Event) {
@@ -193,17 +194,17 @@ final class RoomScene {
         people = people.filter { fp, p in state.occupants[fp] != nil || (p.leftAt.map { now - $0 < 2.5 } ?? false) }
 
         let newestFirst = Array(state.orderedMessages.reversed())
-        let lanes = layoutLanes(newestFirst: newestFirst, me: me)
+        let spots = speakerSpots(newestFirst: newestFirst, me: me)
 
-        // People: speakers on their lanes at the base, everyone else in the gallery.
+        // People: speakers at their spots along the base, everyone else in the gallery.
         var positions: [String: SIMD3<Float>] = [:]
         let inward = mix(0.9, -surface.cylinderRadius * 0.5, t: curl)   // in front when flat, inside when rolled
         for (fp, person) in people {
             var p = person
             let position: SIMD3<Float>
             let scale: Float
-            if let laneS = lanes.personS[fp] {
-                p.s = p.s.map { $0 + (laneS - $0) * ease } ?? laneS
+            if let spot = spots[fp] {
+                p.s = p.s.map { $0 + (spot - $0) * ease } ?? spot
                 position = surface.point(p.s!, 1.05) + surface.normal(at: p.s!) * inward
                 scale = fp == me ? 0.62 : 0.55
             } else {
@@ -215,16 +216,11 @@ final class RoomScene {
             }
             people[fp] = p
             positions[fp] = position
-            buildPerson(into: &g, fp: fp, person: p, at: position, scale: scale, speaker: lanes.personS[fp] != nil,
+            buildPerson(into: &g, fp: fp, person: p, at: position, scale: scale, speaker: spots[fp] != nil,
                         now: now, theme: theme, me: me, surface: surface, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp)
         }
 
-        // Faint rails from each speaker up into the sky tie lanes to their messages.
-        for (fp, s) in lanes.personS where people[fp] != nil && lanes.isLanes {
-            g.line(surface.point(s, 1.9), surface.point(s, skyStart), theme.grid, intensity: 0.18, width: 1)
-        }
-
-        buildMessages(into: &g, newestFirst: newestFirst, lanes: lanes, surface: surface, positions: positions,
+        buildMessages(into: &g, newestFirst: newestFirst, surface: surface, positions: positions,
                       state: state, labels: labels, theme: theme, me: me, origin: origin, focus: focus, eye: eye,
                       viewY: viewY, now: now, ease: ease)
 
@@ -266,52 +262,32 @@ final class RoomScene {
         }
     }
 
-    // MARK: lanes
+    // MARK: speakers
 
-    private struct Lanes {
-        /// Arc position of each speaker's spot along the base.
-        var personS: [String: Float] = [:]
-        /// Where a message by this author is anchored, and whether it hugs a side.
-        var align: [String: Align] = [:]
-        var isLanes = true
-        enum Align { case center(Float), left, right }
-    }
-
-    /// Up to 4 speakers (you included) get evenly spaced lanes with messages offset toward
-    /// their author. More than that and it's two columns: everyone else left, you right.
-    private func layoutLanes(newestFirst: [Message], me: String) -> Lanes {
+    /// Where each recent speaker stands along the base: everyone else spread across the
+    /// left, in the order they first spoke (stable, so nobody shuffles), you on the right.
+    /// Messages follow the same split: theirs on the left, yours on the right.
+    private func speakerSpots(newestFirst: [Message], me: String) -> [String: Float] {
         var recent: [String] = []
         for m in newestFirst.prefix(30) where m.author.identity != me && !recent.contains(m.author.identity) {
             recent.append(m.author.identity)
         }
-        laneOrder.removeAll { !recent.contains($0) }
-        for fp in recent.reversed() where !laneOrder.contains(fp) { laneOrder.append(fp) }
+        speakerOrder.removeAll { !recent.contains($0) }
+        for fp in recent.reversed() where !speakerOrder.contains(fp) { speakerOrder.append(fp) }
 
-        var lanes = Lanes()
         let half = wallWidth / 2
-        if laneOrder.count + 1 <= 4 {
-            let all = laneOrder + [me]   // you're always on the right
-            for (i, fp) in all.enumerated() {
-                let s = -half + wallWidth * (Float(i) + 0.5) / Float(all.count)
-                lanes.personS[fp] = s
-                lanes.align[fp] = .center(s)
-            }
-        } else {
-            lanes.isLanes = false
-            let span = wallWidth * 0.72
-            for (i, fp) in laneOrder.enumerated() {
-                lanes.personS[fp] = -half + span * (Float(i) + 0.5) / Float(laneOrder.count)
-                lanes.align[fp] = .left
-            }
-            lanes.personS[me] = half - wallWidth * 0.1
-            lanes.align[me] = .right
+        let span = wallWidth * 0.72
+        var spots: [String: Float] = [:]
+        for (i, fp) in speakerOrder.enumerated() {
+            spots[fp] = -half + span * (Float(i) + 0.5) / Float(speakerOrder.count)
         }
-        return lanes
+        spots[me] = half - wallWidth * 0.1
+        return spots
     }
 
     // MARK: messages
 
-    private func buildMessages(into g: inout FrameGeometry, newestFirst: [Message], lanes: Lanes, surface: Surface,
+    private func buildMessages(into g: inout FrameGeometry, newestFirst: [Message], surface: Surface,
                                positions: [String: SIMD3<Float>], state: RoomState, labels: [String: String], theme: Theme,
                                me: String, origin: String, focus: Int?, eye: SIMD3<Float>, viewY: Float, now: Float, ease: Float) {
         var frames: [Int: PanelFrame] = [:]
@@ -338,7 +314,7 @@ final class RoomScene {
             var visual = panels[message.id] ?? PanelVisual()
             guard bottom + height > viewY - 12, bottom < skyEnd + 1 else {
                 // Off screen: forget where it was drawn, so it's already in place (height and
-                // lane) when it comes back into view rather than gliding there.
+                // side) when it comes back into view rather than gliding there.
                 visual.y = nil
                 visual.s = nil
                 panels[message.id] = visual
@@ -348,16 +324,12 @@ final class RoomScene {
             let width = min(maxWidth, max(textLines.map { textWidth($0, height: textHeight) }.max() ?? 0,
                                           textWidth(label, height: labelHeight)) + pad * 2)
 
-            // Horizontal anchor from the author's lane.
-            let laneAnchor: Float = switch lanes.align[message.author.identity] ?? .left {
-            case .center(let s): simd_clamp(s, -half + width / 2, half - width / 2)
-            case .left: -half + width / 2
-            case .right: half - width / 2
-            }
+            // Theirs on the left, yours on the right.
+            let sideAnchor = message.author.identity == me ? half - width / 2 : -half + width / 2
             // Around the cylinder: a stable spot per message, golden-ratio spaced so
             // neighbours spread evenly.
             let around = ((Float(message.id) * 0.618034).truncatingRemainder(dividingBy: 1) - 0.5) * surface.width
-            let anchor = mix(laneAnchor, around, t: curl)
+            let anchor = mix(sideAnchor, around, t: curl)
             visual.y = visual.y.map { $0 + (bottom - $0) * ease } ?? bottom
             visual.s = visual.s.map { $0 + (anchor - $0) * ease } ?? anchor
             panels[message.id] = visual
