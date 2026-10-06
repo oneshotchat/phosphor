@@ -114,10 +114,13 @@ struct FrameGeometry {
         }
     }
 
-    /// A wave rolling out across the floor from a room's base.
+    /// One wave rolling out across the floor from a room's base, started by a mention.
     struct Ripple {
+        static let duration: Float = 2.6
         var center: SIMD3<Float>
-        var radius: Float          // the room's footprint; waves start at its edge
+        var radius: Float          // the room's footprint; the wave starts at its edge
+        var startedAt: Float
+        var strength: Float = 1
     }
 
     /// The floor: a grid fading into the distance. Ripples lift it into ridges that travel
@@ -129,11 +132,10 @@ struct FrameGeometry {
         let width: Float = 1.4, reach: Float = 5          // a wavefront's half-width, and where it's ~0
         var waves: [Wave] = []
         for r in ripples {
-            for k in 0..<2 {
-                let phase = (time / 2.6 + Float(k) * 0.5).truncatingRemainder(dividingBy: 1)
-                let amplitude = 0.6 * powf(1 - phase, 1.5)
-                if amplitude > 0.01 { waves.append(Wave(x: r.center.x, z: r.center.z, front: r.radius + phase * 26, amplitude: amplitude)) }
-            }
+            let phase = (time - r.startedAt) / Ripple.duration
+            guard phase >= 0, phase < 1 else { continue }
+            let amplitude = 0.6 * r.strength * powf(1 - phase, 1.5)
+            if amplitude > 0.01 { waves.append(Wave(x: r.center.x, z: r.center.z, front: r.radius + phase * 26, amplitude: amplitude)) }
         }
         func height(_ x: Float, _ z: Float) -> Float {
             var y: Float = 0

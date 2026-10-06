@@ -33,6 +33,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// cylinders arranged by `layout`.
     private var scenes: [String: RoomScene] = [:]
     private var placements: [String: RoomScene.Placement] = [:]
+    private var ripples: [FrameGeometry.Ripple] = []
     private var ringAngle: Float = 0
     private var layoutChangedAt: Float = -100
     private var roomsMovedAt: Float = -100
@@ -224,11 +225,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         var geometry = FrameGeometry()
         geometry.pixelScale = pixelScale
         arrangeRooms(dt: dt, time: time)
-        // Rooms in the background that mentioned you send waves across the floor.
-        let ripples = controller.rooms.compactMap { room -> FrameGeometry.Ripple? in
-            guard room != controller.activeRoom, controller.activity[room]?.mentioned == true, let scene = scenes[room] else { return nil }
-            return FrameGeometry.Ripple(center: scene.floorCenter, radius: scene.wallWidth / 2)
-        }
+        ripples.removeAll { time - $0.startedAt > FrameGeometry.Ripple.duration }
         geometry.floorGrid(theme: theme, ripples: ripples, time: time)
         if let lift = pendingSnapshotLift, time > 1.5 {
             camera.liftTarget = lift
@@ -342,7 +339,18 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     // MARK: rooms
 
-    func handle(_ event: Event, in room: String) { scenes[room]?.handle(event) }
+    func handle(_ event: Event, in room: String) {
+        guard let scene = scenes[room] else { return }
+        scene.handle(event)
+        // A mention sends one wave across the floor from the room's base, from where the
+        // room stands now; it plays out even if you switch rooms meanwhile. Softer for the
+        // room you're in, which shows the message itself.
+        if case .messageCreated(let m) = event.payload, m.author.identity != controller.me,
+           m.mentions?.contains(controller.me) == true {
+            ripples.append(FrameGeometry.Ripple(center: scene.floorCenter, radius: scene.wallWidth / 2, startedAt: AppClock.now,
+                                                strength: room == controller.activeRoom ? 0.5 : 1))
+        }
+    }
     func reload(_ room: String) { scenes[room]?.reset() }
 
     /// Switching rooms starts the new one at its latest messages.

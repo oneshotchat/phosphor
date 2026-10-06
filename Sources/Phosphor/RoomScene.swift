@@ -260,10 +260,9 @@ final class RoomScene {
                               intensity: min(Float(activity.unread), 8) * 0.25 * background, width: 2.5)
             }
             if activity.mentioned {
-                // You were mentioned: the base glows, and the renderer ripples the floor
-                // outward from `floorCenter`.
+                // An unread mention: the base line turns the accent colour until you visit.
                 g.surfaceLine(surface, s0: -surface.width / 2, s1: surface.width / 2, y: 0.05, theme.accent,
-                              intensity: (0.9 + 0.4 * sin(now * 2.6)) * background, width: 2.2)
+                              intensity: 1.1 * background, width: 2)
             }
         }
     }
