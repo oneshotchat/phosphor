@@ -92,6 +92,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Dev: pre-type into the input ("\n" for new lines).
+        if let typed = env["PHOSPHOR_TYPE"] {
+            view.devType(typed.replacingOccurrences(of: "\\n", with: "\n"))
+        }
+
         // Dev: switch to the next room after a delay, to capture the transition.
         if let delay = env["PHOSPHOR_SWITCH"].flatMap(Double.init) {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [controller] in controller.cycle(1) }

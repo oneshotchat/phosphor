@@ -72,23 +72,43 @@ struct HUD {
             text(notice.text, mx, y, 12, color, (notice.kind == .info ? 0.7 : 1.1) * (1 - smoothstep(9, 12, age)))
         }
 
-        // Input box, bottom.
-        let boxH: Float = 34 * scale
+        // Input box, bottom; it grows upward for multi-line messages (⇧⏎).
+        let prompt = controller.browser.isOpen ? controller.browser.inputPrompt : "\(room) › "
+        let textX = mx + 12 * scale
+        let startX = textX + width(prompt, 16)
+        let available = viewport.x - mx - 12 * scale - startX
+
+        // The line with the caret holds the IME composition; the others are plain.
+        var above = input.textBeforeCaret.components(separatedBy: "\n")
+        var below = input.textAfterCaret.components(separatedBy: "\n")
+        let caretBefore = above.removeLast(), caretAfter = below.removeFirst()
+        let maxLines = 8
+        let shownAbove = Array(above.suffix(max(0, maxLines - 1 - min(below.count, 2))))
+        let shownBelow = Array(below.prefix(maxLines - 1 - shownAbove.count))
+        let lineCount = shownAbove.count + 1 + shownBelow.count
+        let lineH: Float = 22 * scale
+        let boxH: Float = 34 * scale + Float(lineCount - 1) * lineH
         let x0 = mx, x1 = viewport.x - mx, y0 = my, y1 = my + boxH
         g.polyline([SIMD3(x0, y0, 0), SIMD3(x1, y0, 0), SIMD3(x1, y1, 0), SIMD3(x0, y1, 0), SIMD3(x0, y0, 0)],
                    theme.primary, intensity: 0.9, width: 1.4)
-        let prompt = controller.browser.isOpen ? controller.browser.inputPrompt : "\(room) › "
-        let textX = x0 + 12 * scale
-        let baseline = y0 + 11 * scale
+        var baseline = y0 + 11 * scale + Float(lineCount - 1) * lineH
         text(prompt, textX, baseline, 16, theme.primary, 0.7)
+        if above.count > shownAbove.count { text("…", textX, baseline, 16, theme.primary, 0.6) }
 
-        // Committed text with the IME composition spliced in at the caret, scrolled to keep
-        // the caret visible.
-        let before = input.textBeforeCaret, after = input.textAfterCaret
-        let available = x1 - 12 * scale - (textX + width(prompt, 16))
-        var shownBefore = before
+        func plainLine(_ line: String) {
+            var shown = line
+            if width(shown, 16) > available {
+                while width(shown + "…", 16) > available, !shown.isEmpty { shown.removeLast() }
+                shown += "…"
+            }
+            text(shown, startX, baseline, 16, theme.primary, 1.2)
+            baseline -= lineH
+        }
+        for line in shownAbove { plainLine(line) }
+
+        // Caret line: scrolled so the caret stays visible.
+        var shownBefore = caretBefore
         while width(shownBefore + input.marked, 16) > available * 0.9, !shownBefore.isEmpty { shownBefore.removeFirst() }
-        let startX = textX + width(prompt, 16)
         text(shownBefore, startX, baseline, 16, theme.primary, 1.2)
         let markedX = startX + width(shownBefore, 16)
         if !input.marked.isEmpty {
@@ -97,11 +117,13 @@ struct HUD {
                    theme.accent, intensity: 1.2, width: 1.2)
         }
         let caretX = markedX + width(input.marked, 16)
-        text(after, caretX, baseline, 16, theme.primary, 1.2)
+        text(caretAfter, caretX, baseline, 16, theme.primary, 1.2)
         if Int(now * 2) % 2 == 0 {
             g.line(SIMD3(caretX + 1 * scale, baseline - 3 * scale, 0), SIMD3(caretX + 1 * scale, baseline + 15 * scale, 0),
                    theme.accent, intensity: 1.8, width: 2)
         }
+        baseline -= lineH
+        for line in shownBelow { plainLine(line) }
 
         // Mention autocomplete, stacked above the box.
         var cy = y1 + 10 * scale

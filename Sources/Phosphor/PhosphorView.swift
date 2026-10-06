@@ -15,8 +15,9 @@ struct InputLine {
     var textBeforeCaret: String { String(text[..<caretIndex]) }
     var textAfterCaret: String { String(text[caretIndex...]) }
 
+    /// Newlines are kept (messages may have several lines); \r isn't allowed in messages.
     mutating func insert(_ s: String) {
-        let clean = s.replacingOccurrences(of: "\r\n", with: " ").replacingOccurrences(of: "\n", with: " ")
+        let clean = s.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         text.insert(contentsOf: clean, at: caretIndex)
         caret += clean.utf16.count
     }
@@ -126,11 +127,22 @@ final class PhosphorView: MTKView, NSTextInputClient {
     // MARK: keys
 
     override func keyDown(with event: NSEvent) {
+        let isReturn = event.keyCode == 36 || event.keyCode == 76
         if event.modifierFlags.contains(.command) {
             super.keyDown(with: event)
+        } else if isReturn, event.modifierFlags.contains(.shift), input.marked.isEmpty, controller?.browser.isOpen != true {
+            // ⇧⏎: a new line in the message instead of sending it.
+            input.insert("\n")
+            refreshCompletions()
         } else {
             interpretKeyEvents([event])
         }
+    }
+
+    /// Dev: puts text in the input as if typed (snapshots of the composer).
+    func devType(_ text: String) {
+        input.insert(text)
+        refreshCompletions()
     }
 
     /// ⌘L. The input line switches between chatting and filtering rooms.
@@ -171,6 +183,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
                 controller.submit(input.text, labels: labelsToFingerprints())
                 input.clear()
             }
+        // ⌥⏎ and ⌃⏎ also add a line, as in other Mac text fields.
+        case #selector(insertNewlineIgnoringFieldEditor(_:)), #selector(insertLineBreak(_:)):
+            guard controller?.browser.isOpen != true else { return }
+            input.insert("\n")
         case #selector(insertTab(_:)):
             input.acceptCompletion()
         case #selector(deleteBackward(_:)): input.deleteBackward()
