@@ -44,6 +44,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var lastGlyphs: [GlyphInstance] = []
     private var lastSceneRanges: [String: (lines: Range<Int>, glyphs: Range<Int>)] = [:]
     private var vapors: [Vapor] = []
+    /// After leaving the active room, everything holds still until this time, so the
+    /// vaporise plays out before the next room comes in.
+    private var holdUntil: Float = -100
+    private let leaveHold: Float = 1.2
     private var ringAngle: Float = 0
     private var layoutChangedAt: Float = -100
     private var roomsMovedAt: Float = -100
@@ -419,6 +423,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             if let r = lastSceneRanges[id], r.lines.upperBound <= lastLines.count, r.glyphs.upperBound <= lastGlyphs.count {
                 vapors.append(Vapor(lines: lastLines[r.lines], glyphs: lastGlyphs[r.glyphs], seed: id))
             }
+            if id == switchedFrom { holdUntil = time + leaveHold }
             scenes[id] = nil
             placements[id] = nil
         }
@@ -429,7 +434,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         let radius = max(22, Float(count) * 24 / (2 * .pi))     // room for 16-wide cylinders
         var delta = -Float(activeIndex) * step - ringAngle
         delta = atan2(sin(delta), cos(delta))          // spin the short way round
-        ringAngle += delta * min(1, dt * 3)
+        let holding = time < holdUntil
+        if !holding { ringAngle += delta * min(1, dt * 3) }
 
         // Ring targets move smoothly as the ring spins, so follow them closely; a layout
         // switch eases everything across.
@@ -437,6 +443,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         let steppingBack = layout == .row && time - roomsMovedAt < rowSwitchDelay(rooms: rooms, activeIndex: activeIndex)
         let cameraFloor = SIMD3<Float>(0, 0, 19)
         for (i, id) in rooms.enumerated() {
+            // While a left room vaporises, the rest stay exactly where they were.
+            if holding, let scene = scenes[id], let p = placements[id] {
+                scene.placement = p
+                continue
+            }
             // The incoming room waits in its slot until the old one has stepped back.
             let active = i == activeIndex && !steppingBack
             let target: SIMD3<Float> = switch layout {
