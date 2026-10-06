@@ -366,10 +366,9 @@ final class Renderer: NSObject, MTKViewDelegate {
             case .ring:
                 SIMD3(sin(Float(i) * step + ringAngle) * radius, 0, cos(Float(i) * step + ringAngle) * radius - radius)
             case .row:
-                // A line in the distance with a gap in the middle, so the rooms flank the
-                // active wall instead of hiding behind it. Slots follow join order, so a
-                // room always returns to the same place.
-                active ? .zero : rowSlot(i, of: count).position
+                // A line in the distance. Slots follow join order, so a room always
+                // returns to the same place.
+                active ? .zero : rowSlot(i, of: count)
             }
             var p = placements[id] ?? RoomScene.Placement(origin: target)
             p.origin += (target - p.origin) * (layout == .row ? min(1, dt * 3) : follow)
@@ -381,13 +380,11 @@ final class Renderer: NSObject, MTKViewDelegate {
             p.normal = simd_normalize(p.normal + (facing - p.normal) * follow)
             placements[id] = p
 
-            // Background rooms roll into cylinders in the ring; in the row they stay flat
-            // walls, drawn small enough to fit beside the active one.
+            // Background rooms roll into cylinders in the ring; in the row they stay flat.
             let scene = scenes[id] ?? RoomScene(atlas: atlas)
             scene.placement = p
             scene.targetCurl = active || layout == .row ? 0 : 1
             scene.targetBackground = active ? 0 : 1
-            scene.targetScale = active || layout == .ring ? 1 : rowSlot(i, of: count).scale
             if scenes[id] == nil {
                 scene.settle()
                 scenes[id] = scene
@@ -398,22 +395,16 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
     }
 
-    /// Slot `i` of `count` in the row: the first half to the left of the active wall, the
-    /// rest to the right, in the band of floor that's visible but not behind the wall.
-    /// Crowded rows draw their rooms smaller.
-    private func rowSlot(_ i: Int, of count: Int) -> (position: SIMD3<Float>, scale: Float) {
-        let z: Float = -30, cameraZ: Float = 19
-        let depth = cameraZ - z
-        let hidden = 8 * depth / cameraZ + 1             // behind the active wall from the camera
-        let visible = 0.77 * depth - 1                   // half the view's width at that depth
-        let band = visible - hidden
-        let left = count / 2, right = count - left
-        let spacing = band / Float(max(left, right, 1))
-        let scale = min(0.5, spacing * 0.85 / 16)
-        let x: Float = i < left
-            ? -(visible - (Float(i) + 0.5) * spacing)
-            : hidden + (Float(i - left) + 0.5) * spacing
-        return (SIMD3(x, 0, z), scale)
+    /// Slot `i` of `count` in the row. Rooms keep their real size (a wall is 8 grid
+    /// squares wide wherever it stands), two squares apart, with edges on grid lines; the
+    /// row sits as far back as it needs to for all of them to fit across the view.
+    private func rowSlot(_ i: Int, of count: Int) -> SIMD3<Float> {
+        let pitch: Float = 20                                       // wall width + two squares
+        let cameraZ: Float = 19
+        let depth = max(48, (Float(count) * pitch / 2 + 1) / 0.77)  // half-width of view ≈ 0.77 × depth
+        let x = (Float(i) - Float(count - 1) / 2) * pitch
+        let z = ((cameraZ - depth) / 2).rounded(.down) * 2          // on a grid line
+        return SIMD3(x, 0, z)
     }
 
     /// The highest the view may fly: the top of everything loaded.

@@ -65,15 +65,10 @@ struct FrameGeometry {
     var pixelScale: Float = 1
     /// Multiplies every intensity; background rooms draw with less.
     var gain: Float = 1
-    /// Uniform scale about `pivot` for everything drawn; distant rooms draw smaller.
-    var pivot = SIMD3<Float>(0, 0, 0)
-    var scale: Float = 1
-
-    private func place(_ p: SIMD3<Float>) -> SIMD3<Float> { scale == 1 ? p : pivot + (p - pivot) * scale }
 
     mutating func line(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ color: SIMD3<Float>, intensity: Float = 1, width: Float = 1.5) {
         guard intensity * gain > 0.001 else { return }
-        lines.append(LineInstance(a: SIMD4(place(a), width * pixelScale), b: SIMD4(place(b), 0), color: SIMD4(color, intensity * gain)))
+        lines.append(LineInstance(a: SIMD4(a, width * pixelScale), b: SIMD4(b, 0), color: SIMD4(color, intensity * gain)))
     }
 
     /// Draws the first `fraction` of the polyline's length: the beam drawing it on.
@@ -110,9 +105,9 @@ struct FrameGeometry {
             let e = g.entry
             let o = origin + right * ((g.x + e.offset.x) * scale) + up * (e.offset.y * scale)
             glyphs.append(GlyphInstance(
-                origin: SIMD4(place(o), 0),
-                right: SIMD4(right * (e.size.x * scale * self.scale), 0),
-                up: SIMD4(up * (e.size.y * scale * self.scale), 0),
+                origin: SIMD4(o, 0),
+                right: SIMD4(right * (e.size.x * scale), 0),
+                up: SIMD4(up * (e.size.y * scale), 0),
                 uvRect: e.uvRect,
                 color: SIMD4(color, intensity * burn * gain)
             ))
@@ -174,9 +169,9 @@ struct FrameGeometry {
             let fade = smoothstep(-0.05, 0.3, facing)
             guard fade > 0.001 else { continue }
             glyphs.append(GlyphInstance(
-                origin: SIMD4(place(o), 0),
-                right: SIMD4(surface.tangent(at: gs + w / 2) * (w * self.scale), 0),
-                up: SIMD4(up * (e.size.y * scale * self.scale), 0),
+                origin: SIMD4(o, 0),
+                right: SIMD4(surface.tangent(at: gs + w / 2) * w, 0),
+                up: SIMD4(up * (e.size.y * scale), 0),
                 uvRect: e.uvRect,
                 color: SIMD4(color, intensity * Self.burn(ahead) * fade * gain)
             ))

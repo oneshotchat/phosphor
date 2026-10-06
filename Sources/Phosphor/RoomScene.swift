@@ -82,9 +82,6 @@ final class RoomScene {
     /// 0 active … 1 in the background (dimmer, messages drift up with age, floor label).
     private(set) var background: Float = 0
     var targetBackground: Float = 0
-    /// Distant rooms in the row are drawn smaller.
-    private(set) var scale: Float = 1
-    var targetScale: Float = 1
 
     // Set by the renderer from the ring/row layout each frame.
     struct Placement {
@@ -121,7 +118,6 @@ final class RoomScene {
     func settle() {
         curl = targetCurl
         background = targetBackground
-        scale = targetScale
     }
 
     func reset() {
@@ -172,10 +168,6 @@ final class RoomScene {
         lastBuild = now
         curl += (targetCurl - curl) * min(1, dt * 3)
         background += (targetBackground - background) * min(1, dt * 3)
-        scale += (targetScale - scale) * min(1, dt * 3)
-        g.pivot = placement.origin
-        g.scale = scale
-        defer { g.scale = 1 }
         beams.removeAll { now - $0.at > 1.4 }
 
         let n = placement.normal
@@ -250,7 +242,6 @@ final class RoomScene {
         // Rolled up in the background: its name and ⌘ number on the floor in front, a
         // brighter base while it has unread messages, and a beacon if you were mentioned.
         if background > 0.05 {
-            g.scale = 1      // labels stay readable however small the room is drawn
             var label = "⌘\(index + 1) #" + SafeText.clean(state.room.name)
             if activity.unread > 0 { label += "  •\(activity.unread)" }
             if activity.mentioned { label += "  @you" }
@@ -260,14 +251,12 @@ final class RoomScene {
                    right: surface.right, up: -n, height: height,
                    color: activity.mentioned ? theme.accent : theme.primary, intensity: (activity.unread > 0 ? 1.4 : 0.8) * background)
             if activity.unread > 0 {
-                g.scale = scale
-                defer { g.scale = 1 }
                 g.surfaceLine(surface, s0: -wallWidth / 2, s1: wallWidth / 2, y: 0.05, theme.primary,
                               intensity: min(Float(activity.unread), 8) * 0.25 * background, width: 2.5)
             }
             if activity.mentioned {
                 g.gain = 1
-                let center = placement.origin - n * surface.cylinderRadius * curl * scale
+                let center = placement.origin - n * surface.cylinderRadius * curl
                 let pulse = 1.4 + 0.8 * sin(now * 4)
                 g.line(center, center + SIMD3(0, 22, 0), theme.accent, intensity: pulse * background, width: 3)
                 g.gain = dim
