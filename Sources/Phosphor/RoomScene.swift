@@ -346,7 +346,10 @@ final class RoomScene {
 
             var visual = panels[message.id] ?? PanelVisual()
             guard bottom + height > viewY - 12, bottom < skyEnd + 1 else {
-                visual.y = nil        // off screen: snap into place when it comes back into view
+                // Off screen: forget where it was drawn, so it's already in place (height and
+                // lane) when it comes back into view rather than gliding there.
+                visual.y = nil
+                visual.s = nil
                 panels[message.id] = visual
                 continue
             }

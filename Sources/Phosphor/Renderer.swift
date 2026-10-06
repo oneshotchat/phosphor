@@ -373,8 +373,12 @@ final class Renderer: NSObject, MTKViewDelegate {
             }
             var p = placements[id] ?? RoomScene.Placement(origin: target)
             p.origin += (target - p.origin) * (layout == .row ? min(1, dt * 3) : follow)
+            // Row walls face straight ahead, square with the grid; ring cylinders turn their
+            // front toward the camera so their busiest side shows.
             let toCamera = cameraFloor - p.origin
-            p.normal = simd_length(toCamera) > 0.01 ? simd_normalize(SIMD3(toCamera.x, 0, toCamera.z)) : SIMD3(0, 0, 1)
+            let facing = layout == .row || simd_length(toCamera) < 0.01
+                ? SIMD3<Float>(0, 0, 1) : simd_normalize(SIMD3(toCamera.x, 0, toCamera.z))
+            p.normal = simd_normalize(p.normal + (facing - p.normal) * follow)
             placements[id] = p
 
             // Background rooms roll into cylinders in the ring; in the row they stay flat
