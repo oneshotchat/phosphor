@@ -174,6 +174,13 @@ final class DemoFeed {
         String((name + String(repeating: "0", count: 26)).prefix(26)).lowercased()
     }
 
+    /// Made-up display names. A few repeat on purpose, so tripcodes show up.
+    private static let handles = [
+        "mira", "jonas_k", "pixelwitch", "tomás", "nyx", "deadbeef", "ollie", "kaito", "sasha.v",
+        "brightside", "quill", "ash", "zuri", "grumpycat", "lena", "theo", "ayo", "marguerite",
+        "0xfeed", "bjørn", "ren", "late_again", "wren", "sam", "ines", "noor", "kit", "mira",
+    ]
+
     /// A made-up public room listing for the browser: busiest first, some needing a key or
     /// an invite.
     static func listing() -> [Room] {
@@ -183,9 +190,12 @@ final class DemoFeed {
             ("news", "links and headlines", 4, 1, "open"), ("late-night", "by invitation", 3, 3, "invite"),
             ("quiet", "", 2, 0, "open"), ("retro", "old machines", 1, 0, "open"),
         ]
-        return rooms.compactMap { name, topic, people, recent, access in
+        return rooms.enumerated().compactMap { index, spec in
+            let (name, topic, people, recent, access) = spec
+            let offset = index * 11
             let occupants = (0..<people).map { i in
-                ["identity": Identity.generate().fingerprint, "name": "guest\(i)", "role": NSNull()] as [String: Any]
+                ["identity": Identity.generate().fingerprint, "name": handles[(i * 5 + offset) % handles.count],      // 5 is coprime with 28: no repeats
+                 "role": NSNull()] as [String: Any]
             }
             return decode(Room.self, [
                 "id": roomID(name), "name": name, "topic": topic, "visibility": "listed", "access": access,

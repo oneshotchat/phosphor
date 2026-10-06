@@ -493,7 +493,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             return
         }
 
-        let pitch: Float = 20                                   // a room's width plus two squares
+        // A room's width plus a gap: cylinders two squares apart, narrow flat rooms one.
+        let pitch: Float = layout == .ring ? BrowserScene.width + 4 : BrowserScene.flatWidth + 2
         let count = ghostRooms.count
         let selected = browser.selected?.id
         let selectedIndex = ghostRooms.firstIndex { $0.id == selected }
