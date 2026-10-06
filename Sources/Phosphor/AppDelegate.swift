@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "Phosphor"
         window.backgroundColor = .black
+        window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = view
         window.center()
         let env = ProcessInfo.processInfo.environment
@@ -46,6 +47,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
             window.makeFirstResponder(view)
             NSApp.activate(ignoringOtherApps: true)
+            // Full screen by default; leaving it (⌃⌘F or the green button) is remembered.
+            let defaults = UserDefaults.standard
+            if defaults.object(forKey: "fullScreen") as? Bool ?? true { window.toggleFullScreen(nil) }
+            for (name, value) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { _ in
+                    UserDefaults.standard.set(value, forKey: "fullScreen")
+                }
+            }
         }
 
         // Room: first argument or PHOSPHOR_ROOM, else #lobby.
@@ -130,6 +139,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Next Theme", #selector(nextTheme(_:)), "t", target: self),
             item("CRT Effects", #selector(toggleCRT(_:)), "e", target: self),
             item("Ring / Row Layout", #selector(toggleLayout(_:)), "g", target: self),
+            NSMenuItem.separator(),
+            {
+                let i = NSMenuItem(title: "Toggle Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+                i.keyEquivalentModifierMask = [.control, .command]
+                return i
+            }(),
         ])
         let arrow = { (key: Int) in String(UnicodeScalar(key)!) }
         submenu("Rooms", [

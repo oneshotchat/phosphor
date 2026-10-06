@@ -38,6 +38,12 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var scenes: [String: RoomScene] = [:]
     private var placements: [String: RoomScene.Placement] = [:]
     private var ripples: [FrameGeometry.Ripple] = []
+    /// Last frame's geometry and which part of it each room drew, so a room you leave can be
+    /// vaporised from exactly how it last looked.
+    private var lastLines: [LineInstance] = []
+    private var lastGlyphs: [GlyphInstance] = []
+    private var lastSceneRanges: [String: (lines: Range<Int>, glyphs: Range<Int>)] = [:]
+    private var vapors: [Vapor] = []
     private var ringAngle: Float = 0
     private var layoutChangedAt: Float = -100
     private var roomsMovedAt: Float = -100
@@ -260,14 +266,22 @@ final class Renderer: NSObject, MTKViewDelegate {
             camera.liftTarget = lift
             pendingSnapshotLift = nil
         }
+        var sceneRanges: [String: (lines: Range<Int>, glyphs: Range<Int>)] = [:]
         for (index, room) in controller.rooms.enumerated() {
             guard let scene = scenes[room] else { continue }
             let active = room == controller.activeRoom
+            let lineStart = geometry.lines.count, glyphStart = geometry.glyphs.count
+            defer { sceneRanges[room] = (lineStart..<geometry.lines.count, glyphStart..<geometry.glyphs.count) }
             scene.build(into: &geometry, state: controller.state(room), theme: theme, me: controller.me, origin: controller.origin,
                         focus: active ? controller.focus : nil, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
                         viewY: lookTarget.y, index: index,     // scrolling up lifts every room's sky
                         activity: controller.activity[room] ?? ChatController.Activity())
         }
+        lastSceneRanges = sceneRanges
+        lastLines = geometry.lines
+        lastGlyphs = geometry.glyphs
+        vapors.removeAll { $0.isFinished }
+        for vapor in vapors { vapor.draw(into: &geometry, theme: theme) }
         keepScrollbackSteady()
         buildGhosts(into: &geometry, dt: dt, aspect: aspect, fovy: fovy)
 
@@ -401,6 +415,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     private func arrangeRooms(dt: Float, time: Float) {
         let rooms = controller.rooms
         for id in scenes.keys where !rooms.contains(id) {
+            // Left: vaporise it from its last frame.
+            if let r = lastSceneRanges[id], r.lines.upperBound <= lastLines.count, r.glyphs.upperBound <= lastGlyphs.count {
+                vapors.append(Vapor(lines: lastLines[r.lines], glyphs: lastGlyphs[r.glyphs], seed: id))
+            }
             scenes[id] = nil
             placements[id] = nil
         }
