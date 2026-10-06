@@ -155,6 +155,11 @@ final class PhosphorView: MTKView, NSTextInputClient {
             controller?.browser.move(-1)
         case #selector(moveDown(_:)) where controller?.browser.isOpen == true:
             controller?.browser.move(1)
+        // The list runs left to right along the row in front, so ←/→ move through it too.
+        case #selector(moveLeft(_:)) where controller?.browser.isOpen == true:
+            controller?.browser.move(-1)
+        case #selector(moveRight(_:)) where controller?.browser.isOpen == true:
+            controller?.browser.move(1)
         case #selector(cancelOperation(_:)) where controller?.browser.isOpen == true:
             controller?.browser.cancel()
             input.clear()

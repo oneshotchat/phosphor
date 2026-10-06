@@ -18,7 +18,10 @@ struct PostUniforms {
 @MainActor
 final class Renderer: NSObject, MTKViewDelegate {
     var camera = Camera()
-    var crtEnabled = true
+    /// Curvature, scanlines and grain. Off unless turned on (⌘E); remembered.
+    var crtEnabled = UserDefaults.standard.bool(forKey: "crtEnabled") {
+        didSet { UserDefaults.standard.set(crtEnabled, forKey: "crtEnabled") }
+    }
     var readingMode = false {
         didSet { readingToggledAt = AppClock.now }
     }
@@ -65,7 +68,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private static let overviewTarget = SIMD3<Float>(0, 3, 8)
     private static let overviewPitch: Float = 0.34
     private static let overviewDistance: Float = 60
-    private static let ghostRowZ: Float = 18
+    private static let ghostRowZ: Float = 26
     private let controller: ChatController
     private weak var phosphorView: PhosphorView?
     private var themeIndex = 0
@@ -88,7 +91,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var frameTimes: [Float] = []
     private var lastCPU: Float = 0
     private static let logFPS = ProcessInfo.processInfo.environment["PHOSPHOR_FPS"] != nil
-    private var effects: Float = 1          // eases between full CRT (1) and clean (0)
+    /// Eases between full CRT (1) and clean (0); starts at the saved setting.
+    private var effects: Float = UserDefaults.standard.bool(forKey: "crtEnabled") ? 1 : 0
     private var eye = SIMD3<Float>(0, 0, 0)
     private var lookTarget = SIMD3<Float>(0, 0, 0)
     private var hasCamera = false
@@ -514,7 +518,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         for (i, room) in ghostRooms.enumerated() {
             let x = (Float(i) - Float(count - 1) / 2) * pitch + ghostScroll
             guard abs(x) < halfView + pitch * 1.5 else { continue }    // well off screen
-            let origin = SIMD3<Float>(x, 0, Self.ghostRowZ + (layout == .ring ? BrowserScene.width / 2 : 0))
+            // Cylinders are much deeper than a flat room's line, so they stand back by their
+            // radius to keep their labels clear of the input box.
+            let origin = SIMD3<Float>(x, 0, Self.ghostRowZ)
             origins[room.id] = origin
             placed.append(BrowserScene.Placed(room: room, origin: origin))
         }
