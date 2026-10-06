@@ -5,7 +5,7 @@ import simd
 /// Listed rooms you haven't joined, shown only in the overview (⌘L) as a row in front of
 /// the active room, at the same size as joined rooms and without messages (you can't read
 /// a room you're not in). In the row layout each is just its base line with the people
-/// present standing on it, named, like a joined room's speakers. In the ring they're
+/// present listed above it, glyph and name. In the ring they're
 /// cylinders: height from headcount, occupants inside, a cage for a key and a sealed top
 /// for invite-only. Either way a pulse shows recent activity.
 @MainActor
@@ -74,36 +74,36 @@ struct BrowserScene {
                                color: glyph.color(theme: theme), intensity: (isSelected ? 1.2 : 0.7) * alpha, width: 1, now: now)
                 }
             } else {
-                // Standing on the line like a joined room's speakers, names underneath.
-                let occupants = Array((room.occupants ?? []).prefix(6))     // room for readable names
+                // A list rising from the line: each person's glyph on the left, their name to
+                // the right, written on the wall's plane like a joined room's text.
+                let occupants = Array((room.occupants ?? []).prefix(6))
                 let labels = Tripcode.labels(for: occupants.map { ($0.name, $0.identity) })
+                let rowHeight: Float = 1.35, nameSize: Float = 0.62
+                let left = o + SIMD3(-r + 1.1, 0, 0.3)
                 for (i, occupant) in occupants.enumerated() {
-                    let s = -r + Self.width * (Float(i) + 0.5) / Float(occupants.count)
-                    let position = o + SIMD3(s, 1.05, 0.9)
+                    let y = 1.0 + Float(i) * rowHeight
                     let glyph = IdentityGlyph(fingerprint: occupant.identity)
                     let glyphColor = glyph.color(theme: theme)
-                    glyph.draw(into: &g, at: position, size: 0.55, color: glyphColor,
+                    glyph.draw(into: &g, at: left + SIMD3(0, y, 0), size: 0.48, color: glyphColor,
                                intensity: (isSelected ? 1.5 : 1) * alpha, width: 1.6, now: now)
                     let name = SafeText.clean(labels[occupant.identity] ?? occupant.name)
-                    let w = FrameGeometry.textWidth(name, atlas: atlas, height: 0.6)
-                    g.text(name, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * 1.2,
-                           right: cameraRight, up: cameraUp, height: 0.6, color: glyphColor,
-                           intensity: (isSelected ? 1.3 : 0.85) * alpha)
+                    g.text(name, atlas: atlas, origin: left + SIMD3(0.95, y - nameSize * 0.35, 0), right: [1, 0, 0], up: [0, 1, 0],
+                           height: nameSize, color: glyphColor, intensity: (isSelected ? 1.3 : 0.85) * alpha)
                 }
                 if people > occupants.count {
-                    let more = "+\(people - occupants.count)"
-                    g.text(more, atlas: atlas, origin: o + SIMD3(r + 0.4, 0.8, 0.9), right: cameraRight, up: cameraUp,
-                           height: 0.6, color: color, intensity: 0.8 * alpha)
+                    g.text("+\(people - occupants.count) more", atlas: atlas,
+                           origin: left + SIMD3(0.95, 1.0 + Float(occupants.count) * rowHeight - nameSize * 0.35, 0),
+                           right: [1, 0, 0], up: [0, 1, 0], height: nameSize * 0.85, color: color, intensity: 0.75 * alpha)
                 }
             }
 
-            // Name, headcount and access on the floor in front (below the names, when flat).
+            // Name, headcount and access on the floor in front.
             var label = "#" + SafeText.clean(room.name) + "  \(people) here"
             if room.access == "key" { label += " · key" }
             if room.access == "invite" { label += " · invite only" }
             let size: Float = isSelected ? 1.3 : 1.0
             let w = FrameGeometry.textWidth(label, atlas: atlas, height: size)
-            g.text(label, atlas: atlas, origin: o + SIMD3(-w / 2, 0.03, (cylinders ? 1.6 : 3.4) + size), right: [1, 0, 0], up: [0, 0, -1],
+            g.text(label, atlas: atlas, origin: o + SIMD3(-w / 2, 0.03, 1.6 + size), right: [1, 0, 0], up: [0, 0, -1],
                    height: size, color: color, intensity: (isSelected ? 1.6 : 0.8) * alpha)
         }
     }
