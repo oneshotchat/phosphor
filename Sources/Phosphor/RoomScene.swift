@@ -315,7 +315,9 @@ final class RoomScene {
             if nearest == nil || abs(bottom - viewY) < nearest!.distance { nearest = (message.id, abs(bottom - viewY)) }
 
             var visual = panels[message.id] ?? PanelVisual()
-            guard bottom + height > viewY - 12, bottom < skyEnd + 1 else {
+            // Skip what's well below the view. Rooms in the background stand much further
+            // back, so far more of them shows below the view; only cull there when it's deep.
+            guard bottom + height > viewY - mix(18, 60, t: background), bottom < skyEnd + 1 else {
                 // Off screen: forget where it was drawn, so it's already in place (height and
                 // side) when it comes back into view rather than gliding there.
                 visual.y = nil
