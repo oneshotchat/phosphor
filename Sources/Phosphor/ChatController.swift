@@ -378,7 +378,7 @@ final class ChatController {
             do {
                 switch head {
                 case "/help":
-                    note(.info, "/sign or /unsigned text · /edit [id] text · /react [id] 👍 · /unreact · /join room [key] · /leave · /nick name · ⌘←→ ⌘1-9 rooms · ↑↓ select · ⌘R read · ⌘G ring/row")
+                    note(.info, "/room [settings] · /topic · /invite · /op /voice /mute /kick /ban @who · /sign or /unsigned text · /edit [id] text · /react [id] 👍 · /unreact · /join room [key] · /leave · /nick name · ⌘←→ ⌘1-9 rooms · ↑↓ select · ⌘R read · ⌘G ring/row")
                 case "/unsigned":
                     try await send(rest, labels: labels, sign: false)
                 case "/sign":
@@ -394,8 +394,27 @@ final class ChatController {
                     guard let target, !reaction.isEmpty else { return note(.error, "usage: /react [id] 👍") }
                     if head == "/react" { try await session?.react(reaction, to: target) } else { try await session?.unreact(reaction, from: target) }
                 case "/join":
-                    let (name, key) = split(rest.trimmingCharacters(in: .whitespaces))
-                    await join(name.trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased(), key: key.isEmpty ? nil : key)
+                    // /join room [key]  or  /join room invite <code>
+                    let (name, more) = split(rest.trimmingCharacters(in: .whitespaces))
+                    let room = name.trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
+                    let (word, code) = split(more)
+                    if word == "invite", !code.isEmpty {
+                        await join(room, invite: code)
+                    } else {
+                        await join(room, key: more.isEmpty ? nil : more)
+                    }
+                case "/room":
+                    try await roomCommand(rest)
+                case "/topic":
+                    try await updateActiveRoom(RoomUpdate(topic: rest), done: rest.isEmpty ? "topic cleared" : "topic set")
+                case "/invite":
+                    guard let activeRoom else { return note(.error, "not in a room") }
+                    let invite = try await session?.client.createInvite(room: activeRoom, uses: Int(rest) ?? 1)
+                    if let invite {
+                        note(.info, "invite code: \(invite.code)  (\(invite.usesLeft ?? 1) use\(invite.usesLeft == 1 ? "" : "s"), 24 h) · they join with /join \(state?.room.name ?? "room") invite \(invite.code)")
+                    }
+                case "/op", "/deop", "/voice", "/devoice", "/mute", "/unmute", "/ban", "/unban", "/allow", "/kick":
+                    try await memberCommand(head, rest, labels: labels)
                 case "/nick":
                     try await session?.client.setName(rest)
                     displayName = rest
@@ -408,6 +427,90 @@ final class ChatController {
                 note(.error, "\(error)")
             }
         }
+    }
+
+    // MARK: operator commands
+
+    /// `/room` shows the active room's settings; `/room <setting>…` changes them, e.g.
+    /// `/room unlisted`, `/room key hunter2`, `/room invite`, `/room moderated`,
+    /// `/room retention 24h` (or `forever`). Several can go in one command.
+    private func roomCommand(_ args: String) async throws {
+        guard let state else { return note(.error, "not in a room") }
+        let words = args.split(separator: " ").map(String.init)
+        if words.isEmpty {
+            let r = state.room
+            let retention = r.retentionSeconds.map { Self.duration($0) } ?? "forever"
+            note(.info, "#\(r.name): \(r.visibility ?? "?") · access \(r.access ?? "?") · speaking \(r.speaking ?? "?") · keeps messages \(retention) · you: \(state.role?.rawValue ?? "member")")
+            note(.info, "change with /room listed|unlisted · open|key <key>|invite · moderated|unmoderated · retention <24h|7d|forever>")
+            return
+        }
+        var update = RoomUpdate()
+        var i = 0
+        while i < words.count {
+            switch words[i] {
+            case "listed", "unlisted": update.visibility = words[i]
+            case "open": update.access = "open"
+            case "invite": update.access = "invite"
+            case "key":
+                guard i + 1 < words.count else { return note(.error, "usage: /room key <key>") }
+                update.access = "key"
+                update.key = words[i + 1]
+                i += 1
+            case "moderated": update.speaking = "moderated"
+            case "unmoderated": update.speaking = "open"
+            case "retention":
+                guard i + 1 < words.count else { return note(.error, "usage: /room retention 24h|7d|forever") }
+                if words[i + 1] == "forever" { update.retention = .forever } else {
+                    guard let seconds = Self.parseDuration(words[i + 1]) else { return note(.error, "retention like 1h, 24h, 7d or forever") }
+                    update.retention = .seconds(seconds)
+                }
+                i += 1
+            default:
+                return note(.error, "unknown room setting '\(words[i])'; /room for the list")
+            }
+            i += 1
+        }
+        try await updateActiveRoom(update, done: "room updated")
+    }
+
+    private func updateActiveRoom(_ update: RoomUpdate, done: String) async throws {
+        guard let activeRoom, let session else { return note(.error, "not in a room") }
+        try await session.updateRoom(activeRoom, update)
+        note(.info, done)
+    }
+
+    /// Roles and kicks for someone in view: `/op @sam#a7`, `/kick @sam spamming`.
+    private func memberCommand(_ head: String, _ args: String, labels: [String: String]) async throws {
+        guard let activeRoom, let client = session?.client else { return note(.error, "not in a room") }
+        let (who, reason) = split(args.trimmingCharacters(in: .whitespaces))
+        let label = who.hasPrefix("@") ? String(who.dropFirst()) : who
+        guard let fp = labels[label] ?? (Identity.isFingerprint(label) ? label : nil) else {
+            return note(.error, "no one called @\(label) here (type @ to pick someone)")
+        }
+        switch head {
+        case "/op": try await client.setRole(room: activeRoom, identity: fp, role: "operator")
+        case "/voice": try await client.setRole(room: activeRoom, identity: fp, role: "voice")
+        case "/mute": try await client.setRole(room: activeRoom, identity: fp, role: "muted")
+        case "/ban": try await client.setRole(room: activeRoom, identity: fp, role: "banned")
+        case "/allow": try await client.setRole(room: activeRoom, identity: fp, role: "invited")
+        case "/kick": try await client.kick(room: activeRoom, identity: fp, reason: reason.isEmpty ? nil : reason)
+        default: try await client.clearRole(room: activeRoom, identity: fp)     // deop, devoice, unmute, unban
+        }
+        note(.info, "\(head.dropFirst()) @\(label): done")
+    }
+
+    static func parseDuration(_ s: String) -> Int? {
+        guard let unit = s.last, let n = Int(s.dropLast()) else { return Int(s) }
+        switch unit {
+        case "h": return n * 3600
+        case "d": return n * 86400
+        case "w": return n * 604800
+        default: return nil
+        }
+    }
+
+    static func duration(_ seconds: Int) -> String {
+        seconds % 86400 == 0 ? "\(seconds / 86400)d" : seconds % 3600 == 0 ? "\(seconds / 3600)h" : "\(seconds)s"
     }
 
     /// Moves the selection through messages: older (-1) or newer (+1); nil clears.

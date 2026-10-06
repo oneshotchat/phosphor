@@ -178,6 +178,41 @@ private func makeClient() throws -> OSCClient {
         #expect(body["expect"] == nil)
     }
 
+    @Test func roomUpdateSendsOnlyChangedFields() async throws {
+        StubServer.reset(loginReplies + [.init(), .init()])
+        let client = try makeClient()
+        try await client.updateRoom("r1", RoomUpdate(visibility: "unlisted"))
+        var last = StubServer.seen.last!
+        #expect(last.method == "PATCH")
+        #expect(last.path == "/v1/rooms/r1")
+        #expect(last.body.keys.sorted() == ["visibility"])
+        #expect(last.body["visibility"] as? String == "unlisted")
+
+        try await client.updateRoom("r1", RoomUpdate(access: "key", key: "hunter2", retention: .forever))
+        last = StubServer.seen.last!
+        #expect(last.body.keys.sorted() == ["access", "key", "retention_seconds"])
+        #expect(last.body["retention_seconds"] is NSNull)     // null: keep forever
+    }
+
+    @Test func rolesKicksAndInvites() async throws {
+        let invite = #"{"code":"k3v9","uses_left":2,"expires_at":"2026-10-07T00:00:00.000Z"}"#
+        StubServer.reset(loginReplies + [.init(), .init(), .init(), .init(status: 201, json: invite)])
+        let client = try makeClient()
+        try await client.setRole(room: "r1", identity: "abc", role: "voice")
+        #expect(StubServer.seen.last!.method == "PUT")
+        #expect(StubServer.seen.last!.path == "/v1/rooms/r1/roles/abc")
+        #expect(StubServer.seen.last!.body["role"] as? String == "voice")
+        try await client.clearRole(room: "r1", identity: "abc")
+        #expect(StubServer.seen.last!.method == "DELETE")
+        try await client.kick(room: "r1", identity: "abc", reason: "spam")
+        #expect(StubServer.seen.last!.path == "/v1/rooms/r1/kick")
+        #expect(StubServer.seen.last!.body["reason"] as? String == "spam")
+        let made = try await client.createInvite(room: "r1", uses: 2)
+        #expect(made.code == "k3v9")
+        #expect(made.usesLeft == 2)
+        #expect(StubServer.seen.last!.body["expires_in"] as? Int == 86400)
+    }
+
     @Test func publicCallsDontLogIn() async throws {
         StubServer.reset([.init(json: #"{"rooms":[],"next":null}"#)])
         let client = try makeClient()

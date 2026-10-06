@@ -74,6 +74,14 @@ public final class ChatSession {
         return rooms[id] ?? state
     }
 
+    /// Changes room settings. A key you set is kept for automatic rejoins, like one you
+    /// joined with.
+    public func updateRoom(_ room: String, _ update: RoomUpdate) async throws {
+        try await client.updateRoom(room, update)
+        if let key = update.key { roomKeys[room] = key }
+        if update.access == "open" { roomKeys[room] = nil }
+    }
+
     public func leave(_ room: String) async throws {
         try await client.leave(room: room)
         rooms[room] = nil

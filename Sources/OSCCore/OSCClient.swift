@@ -126,6 +126,35 @@ public actor OSCClient {
         let _: Empty = try await call("POST", "/v1/rooms/\(segment(room))/leave")
     }
 
+    // MARK: operator actions (operators and server admins; others get 403 not_operator)
+
+    /// Emits `room.updated` to everyone in the room.
+    public func updateRoom(_ room: String, _ update: RoomUpdate) async throws {
+        let _: Empty = try await call("PATCH", "/v1/rooms/\(segment(room))", body: update)
+    }
+
+    /// `role`: operator, voice, invited, muted or banned. Banning also removes them.
+    public func setRole(room: String, identity: String, role: String) async throws {
+        struct Body: Encodable { var role: String }
+        let _: Empty = try await call("PUT", "/v1/rooms/\(segment(room))/roles/\(segment(identity))", body: Body(role: role))
+    }
+
+    public func clearRole(room: String, identity: String) async throws {
+        let _: Empty = try await call("DELETE", "/v1/rooms/\(segment(room))/roles/\(segment(identity))")
+    }
+
+    /// Removes someone now; they can rejoin unless banned.
+    public func kick(room: String, identity: String, reason: String?) async throws {
+        struct Body: Encodable { var identity: String; var reason: String? }
+        let _: Empty = try await call("POST", "/v1/rooms/\(segment(room))/kick", body: Body(identity: identity, reason: reason))
+    }
+
+    /// An invite code for an invite-only room. Defaults: 1 use, 24 hours.
+    public func createInvite(room: String, uses: Int = 1, expiresIn: Int = 86400) async throws -> Invite {
+        struct Body: Encodable { var uses: Int; var expiresIn: Int }
+        return try await call("POST", "/v1/rooms/\(segment(room))/invites", body: Body(uses: uses, expiresIn: expiresIn))
+    }
+
     // MARK: messages
 
     public func messages(room: String, before: Int? = nil, after: Int? = nil, limit: Int = 50) async throws -> MessagePage {

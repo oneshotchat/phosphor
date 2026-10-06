@@ -125,6 +125,54 @@ public struct RoomCreateOptions: Codable, Sendable {
     }
 }
 
+/// Room settings an operator can change (`PATCH /v1/rooms/{room}`). Only the fields that
+/// are set are sent. The key is write-only: the server never returns it.
+public struct RoomUpdate: Encodable, Sendable, Equatable {
+    public enum Retention: Sendable, Equatable {
+        case seconds(Int)
+        case forever
+    }
+
+    public var topic: String?
+    public var visibility: String?       // listed | unlisted
+    public var access: String?           // open | key | invite
+    public var speaking: String?         // open | moderated
+    public var key: String?
+    public var retention: Retention?
+
+    public init(topic: String? = nil, visibility: String? = nil, access: String? = nil, speaking: String? = nil,
+                key: String? = nil, retention: Retention? = nil) {
+        self.topic = topic
+        self.visibility = visibility
+        self.access = access
+        self.speaking = speaking
+        self.key = key
+        self.retention = retention
+    }
+
+    enum CodingKeys: String, CodingKey { case topic, visibility, access, speaking, key, retentionSeconds = "retention_seconds" }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(topic, forKey: .topic)
+        try c.encodeIfPresent(visibility, forKey: .visibility)
+        try c.encodeIfPresent(access, forKey: .access)
+        try c.encodeIfPresent(speaking, forKey: .speaking)
+        try c.encodeIfPresent(key, forKey: .key)
+        switch retention {
+        case .seconds(let s): try c.encode(s, forKey: .retentionSeconds)
+        case .forever: try c.encodeNil(forKey: .retentionSeconds)       // null means keep forever
+        case nil: break
+        }
+    }
+}
+
+public struct Invite: Decodable, Sendable {
+    public var code: String
+    public var usesLeft: Int?
+    public var expiresAt: Date?
+}
+
 public struct Author: Codable, Sendable, Equatable {
     public var identity: String
     /// A snapshot of the name at send time.
