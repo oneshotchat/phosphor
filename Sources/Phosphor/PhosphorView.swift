@@ -133,6 +133,13 @@ final class PhosphorView: MTKView, NSTextInputClient {
         }
     }
 
+    /// ⌘L. The input line switches between chatting and filtering rooms.
+    func toggleBrowser() {
+        guard let browser = controller?.browser else { return }
+        if browser.isOpen { browser.close() } else { browser.open() }
+        input.clear()
+    }
+
     @objc func paste(_ sender: Any?) {
         guard let s = NSPasteboard.general.string(forType: .string) else { return }
         input.insert(s)
@@ -141,6 +148,17 @@ final class PhosphorView: MTKView, NSTextInputClient {
 
     override func doCommand(by selector: Selector) {
         switch selector {
+        case #selector(insertNewline(_:)) where controller?.browser.isOpen == true:
+            controller?.browser.submit(input.text)
+            input.clear()
+        case #selector(moveUp(_:)) where controller?.browser.isOpen == true:
+            controller?.browser.move(-1)
+        case #selector(moveDown(_:)) where controller?.browser.isOpen == true:
+            controller?.browser.move(1)
+        case #selector(cancelOperation(_:)) where controller?.browser.isOpen == true:
+            controller?.browser.cancel()
+            input.clear()
+            return
         case #selector(insertNewline(_:)):
             if input.wantsCompletion {
                 input.acceptCompletion()
@@ -180,6 +198,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
     }
 
     private func refreshCompletions() {
+        if let browser = controller?.browser, browser.isOpen {
+            browser.setQuery(input.text)      // in the browser, typing filters rooms
+            return
+        }
         let me = controller?.me
         input.updateCompletions(labels: labelsToFingerprints().filter { $0.value != me }.map(\.key))
     }

@@ -44,7 +44,7 @@ final class DemoFeed {
         self.speakers = max(1, speakers)
         self.me = me
         self.pace = pace
-        roomID = String((name + String(repeating: "0", count: 26)).prefix(26)).lowercased()
+        roomID = Self.roomID(name)
         let names = ["sam", "sam", "ada", "kit", "noor", "lev", "ines", "tomo", "rue", "bo", "cy", "dee"]
         people = [(me, "you")] + names.map { (Identity.generate().fingerprint, $0) }
         present = Set(people.prefix(9).map(\.fp))
@@ -166,6 +166,33 @@ final class DemoFeed {
             "signature": NSNull(), "version": 1, "created_at": Self.timestamp(Date()), "edited_at": NSNull(),
             "reactions": [] as [Any], "expires_at": Self.timestamp(Date().addingTimeInterval(3600)),
         ]
+    }
+
+    /// Room id for a demo room name, the same way `init` makes it, so a listed room and the
+    /// feed that serves it once joined share an id.
+    static func roomID(_ name: String) -> String {
+        String((name + String(repeating: "0", count: 26)).prefix(26)).lowercased()
+    }
+
+    /// A made-up public room listing for the browser: busiest first, some needing a key or
+    /// an invite.
+    static func listing() -> [Room] {
+        let rooms: [(String, String, Int, Int, String)] = [
+            ("lobby", "say hi", 14, 9, "open"), ("ai", "talk about models", 9, 6, "open"),
+            ("games", "members only", 6, 4, "key"), ("help", "ask anything", 5, 2, "open"),
+            ("news", "links and headlines", 4, 1, "open"), ("late-night", "by invitation", 3, 3, "invite"),
+            ("quiet", "", 2, 0, "open"), ("retro", "old machines", 1, 0, "open"),
+        ]
+        return rooms.compactMap { name, topic, people, recent, access in
+            let occupants = (0..<people).map { i in
+                ["identity": Identity.generate().fingerprint, "name": "guest\(i)", "role": NSNull()] as [String: Any]
+            }
+            return decode(Room.self, [
+                "id": roomID(name), "name": name, "topic": topic, "visibility": "listed", "access": access,
+                "speaking": "open", "retention_seconds": 3600, "latest_seq": 100, "occupant_count": people,
+                "occupants": occupants, "activity": ["messages_last_10m": recent],
+            ])
+        }
     }
 
     private static func timestamp(_ date: Date) -> String {

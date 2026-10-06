@@ -23,6 +23,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         didSet { readingToggledAt = AppClock.now }
     }
     private var readingToggledAt: Float = -100
+    private var wasBrowsing = false
     /// The message the view is pinned to while scrolled up, and where it was last frame.
     private var anchor: (id: Int, y: Float)?
 
@@ -50,6 +51,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
     private var activeScene: RoomScene? { controller.activeRoom.flatMap { scenes[$0] } }
     private let hud: HUD
+    private let browserScene: BrowserScene
+    /// Where each unjoined room's ghost stands this frame; a room joined from the browser
+    /// starts from there.
+    private var ghostCenters: [String: SIMD3<Float>] = [:]
     private let controller: ChatController
     private weak var phosphorView: PhosphorView?
     private var themeIndex = 0
@@ -90,6 +95,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         self.queue = queue
         atlas = GlyphAtlas(device: device)
         hud = HUD(atlas: atlas)
+        browserScene = BrowserScene(atlas: atlas)
         self.controller = controller
         phosphorView = view
 
@@ -201,7 +207,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         camera.lift += (camera.liftTarget - camera.lift) * min(1, dt * 8)
         activeScene?.isLifted = camera.liftTarget > 1
         var desiredEye = camera.eye, desiredTarget = camera.center
-        if readingMode, let scene = activeScene, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
+        if controller.browser.isOpen {
+            // Browsing: pull up and back to take in every room, joined or not.
+            desiredTarget = SIMD3(0, 1.5, -20)
+            desiredEye = desiredTarget + SIMD3(0, sin(Float(0.55)), cos(Float(0.55))) * 78
+        } else if readingMode, let scene = activeScene, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
             // Back off until the whole panel fits on screen, with a margin.
             let fitWidth = panel.width / 2 * 1.2 / (tan(fovy / 2) * aspect)
             let fitHeight = panel.height / 2 * 1.6 / tan(fovy / 2)
@@ -209,8 +219,12 @@ final class Renderer: NSObject, MTKViewDelegate {
             desiredTarget = panel.center
         }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
-        // Ease slowly in and out of reading mode; otherwise follow the camera closely.
-        let ease = SIMD3(repeating: min(1, dt * (readingMode || time - readingToggledAt < 1.2 ? 4 : 14)))
+        // Ease slowly in and out of reading mode and the browser; otherwise follow closely.
+        if controller.browser.isOpen != wasBrowsing {
+            wasBrowsing = controller.browser.isOpen
+            readingToggledAt = time
+        }
+        let ease = SIMD3(repeating: min(1, dt * (readingMode || controller.browser.isOpen || time - readingToggledAt < 1.2 ? 3 : 14)))
         eye = simd_mix(eye, desiredEye, ease)
         lookTarget = simd_mix(lookTarget, desiredTarget, ease)
 
@@ -240,6 +254,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                         activity: controller.activity[room] ?? ChatController.Activity())
         }
         keepScrollbackSteady()
+        buildGhosts(into: &geometry)
 
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()
@@ -251,6 +266,9 @@ final class Renderer: NSObject, MTKViewDelegate {
                 : unseen > 0 ? "↓ \(unseen) new  ·  ⌘↓ latest" : "scrolled up  ·  ⌘↓ latest"
             hud.build(into: &hudGeometry, viewport: viewport, scale: pixelScale, controller: controller, input: input,
                       theme: theme, hint: hint)
+            if controller.browser.isOpen {
+                hud.buildBrowser(into: &hudGeometry, viewport: viewport, scale: pixelScale, browser: controller.browser, theme: theme)
+            }
         }
         var hudUniforms = FrameUniforms(
             viewProj: simd_float4x4(columns: (SIMD4(2 / viewport.x, 0, 0, 0), SIMD4(0, 2 / viewport.y, 0, 0),
@@ -396,7 +414,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                 // returns to the same place.
                 active ? .zero : rowSlot(i, of: count)
             }
-            var p = placements[id] ?? RoomScene.Placement(origin: target)
+            let joinedFromBrowser = placements[id] == nil ? ghostCenters[id] : nil
+            var p = placements[id] ?? RoomScene.Placement(origin: joinedFromBrowser ?? target)
             p.origin += (target - p.origin) * (layout == .row ? min(1, dt * rowSpeed) : follow)
             // Row walls face straight ahead, square with the grid; ring cylinders turn their
             // front toward the camera so their busiest side shows.
@@ -413,6 +432,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             scene.targetBackground = active ? 0 : 1
             if scenes[id] == nil {
                 scene.settle()
+                if joinedFromBrowser != nil { scene.startRolledUp() }
                 scenes[id] = scene
             }
             scene.isActive = active
@@ -445,6 +465,38 @@ final class Renderer: NSObject, MTKViewDelegate {
         let x = (Float(i) - Float(count - 1) / 2) * pitch
         let z = ((cameraZ - depth) / 2).rounded(.down) * 2          // on a grid line
         return SIMD3(x, 0, z)
+    }
+
+    /// Unjoined listed rooms around the outside: an outer ring beyond the joined ring, or
+    /// rows behind the joined row. While browsing they're the filtered results.
+    private func buildGhosts(into g: inout FrameGeometry) {
+        let browser = controller.browser
+        let rooms: [Room] = browser.isOpen
+            ? Array(browser.entries.compactMap { if case .listed(let room) = $0 { room } else { nil } }.prefix(16))
+            : Array(controller.unjoinedListed.prefix(12))
+        let count = rooms.count
+        var centers: [String: SIMD3<Float>] = [:]
+        let joined = max(controller.rooms.count, 1)
+        for (i, room) in rooms.enumerated() {
+            switch layout {
+            case .ring:
+                // An arc round the back of the joined ring, from beside the active wall on
+                // one side to the other, so none stand between you and the active room.
+                let inner = max(22, Float(joined) * 24 / (2 * .pi))
+                let outer = inner + 20
+                let a = Float.pi * (0.35 + 1.3 * (Float(i) + 0.5) / Float(count))
+                centers[room.id] = SIMD3(sin(a) * outer, 0, cos(a) * outer - inner)
+            case .row:
+                let perRow = 6
+                let rowZ = rowSlot(0, of: joined).z
+                let line = i / perRow, column = i % perRow
+                let inLine = min(perRow, count - line * perRow)
+                centers[room.id] = SIMD3((Float(column) - Float(inLine - 1) / 2) * 16, 0, rowZ - 26 * Float(line + 1))
+            }
+        }
+        ghostCenters = centers
+        browserScene.build(into: &g, rooms: rooms.compactMap { room in centers[room.id].map { (room, $0) } },
+                           selected: browser.isOpen ? browser.selected?.id : nil, browsing: browser.isOpen, theme: theme, eye: eye)
     }
 
     /// The highest the view may fly: the top of everything loaded.

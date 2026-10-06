@@ -60,6 +60,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DevInput.startIfRequested(controller: controller)
 
+        // Dev: open the room browser at launch, with an optional filter.
+        if env["PHOSPHOR_BROWSE"] != nil {
+            view.toggleBrowser()
+            if let query = env["PHOSPHOR_BROWSE_QUERY"] { controller.browser.setQuery(query) }
+            // …and press Enter on the selection after a delay.
+            if let delay = env["PHOSPHOR_BROWSE_JOIN"].flatMap(Double.init) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [controller] in controller.browser.submit("") }
+            }
+        }
+
         // Dev: switch to the next room after a delay, to capture the transition.
         if let delay = env["PHOSPHOR_SWITCH"].flatMap(Double.init) {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [controller] in controller.cycle(1) }
@@ -84,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func jumpToLatest(_ sender: Any?) { renderer.jumpToLatest() }
     @objc func resetView(_ sender: Any?) { renderer.resetView() }
     @objc func toggleCRT(_ sender: Any?) { renderer.crtEnabled.toggle() }
+    @objc func toggleBrowser(_ sender: Any?) { (window.contentView as? PhosphorView)?.toggleBrowser() }
     @objc func toggleLayout(_ sender: Any?) { renderer.layout = renderer.layout == .ring ? .row : .ring }
     @objc func nextRoom(_ sender: Any?) { controller.cycle(1) }
     @objc func previousRoom(_ sender: Any?) { controller.cycle(-1) }
@@ -115,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ])
         let arrow = { (key: Int) in String(UnicodeScalar(key)!) }
         submenu("Rooms", [
+            item("Room Browser", #selector(toggleBrowser(_:)), "l", target: self),
+            NSMenuItem.separator(),
             item("Next Room", #selector(nextRoom(_:)), arrow(NSRightArrowFunctionKey), target: self),
             item("Previous Room", #selector(previousRoom(_:)), arrow(NSLeftArrowFunctionKey), target: self),
             NSMenuItem.separator(),

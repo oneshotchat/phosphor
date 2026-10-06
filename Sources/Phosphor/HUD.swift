@@ -76,7 +76,7 @@ struct HUD {
         let x0 = mx, x1 = viewport.x - mx, y0 = my, y1 = my + boxH
         g.polyline([SIMD3(x0, y0, 0), SIMD3(x1, y0, 0), SIMD3(x1, y1, 0), SIMD3(x0, y1, 0), SIMD3(x0, y0, 0)],
                    theme.primary, intensity: 0.9, width: 1.4)
-        let prompt = "\(room) › "
+        let prompt = controller.browser.isOpen ? controller.browser.inputPrompt : "\(room) › "
         let textX = x0 + 12 * scale
         let baseline = y0 + 11 * scale
         text(prompt, textX, baseline, 16, theme.primary, 0.7)
@@ -117,5 +117,44 @@ struct HUD {
         if input.completions.isEmpty, let focus = controller.focus {
             text("selected [\(focus)]  ·  /react 👍  ·  /edit text  ·  ↑↓ move  ·  esc clear", x0 + 12 * scale, cy, 12, theme.accent, 0.9)
         }
+    }
+
+    /// The browser's list, on the right: filtered rooms with who's there, recent activity
+    /// and access, the selection highlighted.
+    func buildBrowser(into g: inout FrameGeometry, viewport: SIMD2<Float>, scale: Float, browser: RoomBrowser, theme: Theme) {
+        let right = SIMD3<Float>(1, 0, 0), up = SIMD3<Float>(0, 1, 0)
+        let x = viewport.x * 0.56
+        var y = viewport.y * 0.82
+        func text(_ s: String, _ size: Float, _ color: SIMD3<Float>, _ intensity: Float) {
+            g.text(s, atlas: atlas, origin: SIMD3(x, y, 0), right: right, up: up, height: size * scale, color: color, intensity: intensity)
+        }
+        text("ROOMS", 15, theme.accent, 1.3)
+        y -= 18 * scale
+        text("type to filter · ↑↓ pick · ⏎ join · esc close", 12, theme.primary, 0.6)
+        y -= 26 * scale
+
+        let entries = browser.entries
+        if entries.isEmpty { text("no rooms match", 13, theme.primary, 0.6) }
+        let window = 14
+        let first = max(0, min(browser.selection - window / 2, entries.count - window))
+        for (i, entry) in entries.enumerated().dropFirst(first).prefix(window) {
+            let selected = i == browser.selection
+            var line = selected ? "▸ " : "  "
+            switch entry {
+            case .listed(let room):
+                line += "#" + SafeText.clean(room.name)
+                line += "  \(room.occupantCount ?? 0) here"
+                if let recent = room.activity?.messagesLast10m, recent > 0 { line += " · \(recent)/10m" }
+                if room.access == "key" { line += "  [key]" }
+                if room.access == "invite" { line += "  [invite]" }
+                let topic = SafeText.clean(room.topic ?? "").replacingOccurrences(of: "\n", with: " ")
+                if !topic.isEmpty { line += "  " + (topic.count > 30 ? topic.prefix(29) + "…" : topic) }
+            case .byName(let name):
+                line += "join #\(name) by name (unlisted, or new)"
+            }
+            text(line, 13, selected ? theme.accent : theme.primary, selected ? 1.4 : 0.8)
+            y -= 19 * scale
+        }
+        if entries.count > window { text("  … \(entries.count) rooms", 12, theme.primary, 0.5) }
     }
 }

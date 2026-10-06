@@ -19,16 +19,13 @@ final class RoomScene {
     }
 
     private struct PersonVisual {
-        let solid: Wireframe
-        let core: Wireframe
-        let hue: Float
+        let glyph: IdentityGlyph
         var name: String
         var joinedAt: Float = -100
         var leftAt: Float?
         var leaveReason: String?
         /// Eased position along the wall, so people slide when the speakers change.
         var s: Float?
-        var galleryOffset: Float
     }
 
     private struct PanelVisual {
@@ -127,6 +124,13 @@ final class RoomScene {
         background = targetBackground
     }
 
+    /// A room joined from the browser starts as a rolled-up background cylinder, where its
+    /// ghost stood, and unrolls into place from there.
+    func startRolledUp() {
+        curl = 1
+        background = 1
+    }
+
     func reset() {
         people = [:]
         panels = [:]
@@ -217,7 +221,7 @@ final class RoomScene {
             } else {
                 // Gallery: a dim arc behind the wall (inside the cylinder when rolled up).
                 p.s = nil
-                let gs = (p.galleryOffset - 0.5) * wallWidth * 0.9
+                let gs = (p.glyph.offset - 0.5) * wallWidth * 0.9
                 position = surface.point(gs * (1 - curl), 0.55) + surface.normal(at: gs) * mix(-3.2, -surface.cylinderRadius * 0.3, t: curl)
                 scale = 0.32
             }
@@ -402,8 +406,7 @@ final class RoomScene {
             }
         }
 
-        let authorColor = people[message.author.identity].map { color(hue: $0.hue, theme: theme) }
-            ?? color(hue: hue(of: message.author.identity), theme: theme)
+        let authorColor = (people[message.author.identity]?.glyph ?? IdentityGlyph(fingerprint: message.author.identity)).color(theme: theme)
         let textS = s0 + pad
         var baseline = y1 - pad - labelHeight * 0.8
         g.surfaceText(label, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: labelHeight,
@@ -447,7 +450,7 @@ final class RoomScene {
                              eye: SIMD3<Float>, cameraRight: SIMD3<Float>, cameraUp: SIMD3<Float>) {
         var position = base
         let isMe = fp == me
-        let color = isMe ? theme.accent : self.color(hue: person.hue, theme: theme)
+        let color = isMe ? theme.accent : person.glyph.color(theme: theme)
         var intensity: Float = speaker ? 1.5 : 0.55
         var draw = smoothstep(0, 0.8, now - person.joinedAt)   // join: edges draw on
         var scatter: Float = 0
@@ -470,22 +473,8 @@ final class RoomScene {
         }
         guard intensity > 0.01, draw > 0.001 else { return }
 
-        let spin = simd_quatf(angle: now * 0.7 + person.hue * 6, axis: simd_normalize(SIMD3(0.3, 1, 0.2)))
-        let counter = simd_quatf(angle: -now * 1.3, axis: simd_normalize(SIMD3(1, 0.2, 0.4)))
-        for (shape, scale, rotation, width, gain) in [(person.solid, size, spin, Float(1.8), Float(1)),
-                                                      (person.core, size * 0.4, counter, Float(1.2), Float(0.75))] {
-            for (a, b) in shape.edges {
-                var pa = shape.vertices[a].rotated(by: rotation) * scale
-                var pb = shape.vertices[b].rotated(by: rotation) * scale
-                if scatter > 0 {
-                    let push = simd_normalize(pa + pb + SIMD3(0.001, 0, 0)) * scatter
-                    pa += push
-                    pb += push
-                }
-                g.polyline([position + pa, position + pb], color, intensity: intensity * gain,
-                           width: speaker ? width : 1, fraction: draw)
-            }
-        }
+        person.glyph.draw(into: &g, at: position, size: size, color: color, intensity: intensity,
+                          width: speaker ? 1.8 : 1, now: now, draw: draw, scatter: scatter)
         guard speaker, background < 0.5 else { return }
         let label = SafeText.clean(person.name)
         let w = FrameGeometry.textWidth(label, atlas: atlas, height: 0.28)
@@ -512,23 +501,7 @@ final class RoomScene {
     // MARK: helpers
 
     private func makePerson(_ fp: String, name: String, joinedAt: Float = -100) -> PersonVisual {
-        var rng = SplitMix64(string: fp)
-        let solid = Wireframe.random(using: &rng, jitter: 0.18)
-        let core = Wireframe.random(using: &rng, jitter: 0.1)
-        let hue = Float.random(in: 0..<1, using: &rng)
-        return PersonVisual(solid: solid, core: core, hue: hue, name: name, joinedAt: joinedAt,
-                            galleryOffset: Float.random(in: 0..<1, using: &rng))
-    }
-
-    private func hue(of fp: String) -> Float {
-        var rng = SplitMix64(string: fp)
-        _ = Wireframe.random(using: &rng, jitter: 0.18)
-        _ = Wireframe.random(using: &rng, jitter: 0.1)
-        return Float.random(in: 0..<1, using: &rng)
-    }
-
-    private func color(hue: Float, theme: Theme) -> SIMD3<Float> {
-        theme.monochrome ? theme.primary : hsv(hue, 0.65, 1)
+        PersonVisual(glyph: IdentityGlyph(fingerprint: fp), name: name, joinedAt: joinedAt)
     }
 
     private func signatureStatus(_ m: Message, origin: String) -> Message.SignatureStatus {
