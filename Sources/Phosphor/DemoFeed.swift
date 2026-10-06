@@ -23,30 +23,31 @@ final class DemoFeed {
     private var messages: [Int: [String: Any]] = [:]
     private var task: Task<Void, Never>?
 
-    private static let lines = [
-        "anyone else here from #conformance?",
-        "just passed !test 🎉",
-        "lobby keeps messages for seven days, this one only an hour",
-        "has anyone tried the WebSocket reconnect after a laptop sleep? catch-up worked for me",
-        "日本語もok → CoreText font fallback",
-        "nothing lasts forever ✦",
-        "a slightly longer message to see how wrapping behaves when someone has a lot to say about tripcodes and petnames and why fingerprints are the only real identity here",
-        "line one\nline two\nline three",
-        "+1",
-        "brb",
-        "signatures can't be denied later, worth remembering",
-        "the bot says set client.url",
-        "who's the other sam?",
-        "rooms expire after 7 days with nobody in them",
-    ]
+    private let script: DemoScript
+    /// Lines are dealt from a shuffled deck, so none repeats until the rest have been said.
+    private var deck: [String] = []
+    private var lastLine: String?
 
-    init(name: String, topic: String, me: String, speakers: Int, pace: ClosedRange<Int>) {
+    private func nextLine() -> String {
+        if deck.isEmpty {
+            deck = script.lines.shuffled()
+            if deck.count > 1, deck.last == lastLine { deck.swapAt(0, deck.count - 1) }
+        }
+        let line = deck.removeLast()
+        lastLine = line
+        return line
+    }
+
+    init(name: String, topic: String, me: String, myName: String, speakers: Int, pace: ClosedRange<Int>) {
         self.speakers = max(1, speakers)
         self.me = me
         self.pace = pace
+        script = DemoScript.forRoom(name)
         roomID = Self.roomID(name)
-        let names = ["sam", "sam", "ada", "kit", "noor", "lev", "ines", "tomo", "rue", "bo", "cy", "dee"]
-        people = [(me, "you")] + names.map { (Identity.generate().fingerprint, $0) }
+        // Two sams on purpose, so tripcodes show up; the rest vary by room.
+        var rng = SplitMix64(string: name)
+        let names = ["sam", "sam"] + Self.handles.filter { $0 != "sam" }.shuffled(using: &rng).prefix(10)
+        people = [(me, myName)] + names.map { (Identity.generate().fingerprint, $0) }
         present = Set(people.prefix(9).map(\.fp))
 
         let occupants = people.prefix(9).map { ["identity": $0.fp, "name": $0.name, "role": NSNull()] as [String: Any] }
@@ -63,7 +64,7 @@ final class DemoFeed {
             seq += 1
             let author = speakerPool[i % speakerPool.count]
             // Hours old, like history from the real server.
-            let dict = message(id: seq, author: author, text: Self.lines[i % Self.lines.count],
+            let dict = message(id: seq, author: author, text: nextLine(),
                                at: Date().addingTimeInterval(-Double(8 - i) * 1800))
             messages[seq] = dict
             history.append(Self.decode(Message.self, dict)!)
@@ -100,10 +101,27 @@ final class DemoFeed {
             edit(id, text: String(line.dropFirst(6)))
         } else if !line.hasPrefix("/") {
             post(from: me, text: line, asReply: true)
+            respondToYou()
         }
     }
 
     // MARK: script
+
+    /// Someone usually reacts to what you post, and sometimes answers.
+    private func respondToYou() {
+        guard let mine = messages.keys.max() else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int.random(in: 1200...2600)))
+            guard let self else { return }
+            if Int.random(in: 0..<100) < 75, let who = speakerPool.randomElement() {
+                react(mine, ["🔥", "👍", "✦", "+1"].randomElement()!, by: who.fp)
+            }
+            try? await Task.sleep(for: .milliseconds(Int.random(in: 900...2200)))
+            if Int.random(in: 0..<100) < 45, let who = speakerPool.randomElement() {
+                post(from: who.fp, text: script.replies.randomElement()!)
+            }
+        }
+    }
 
     private var speakerPool: [(fp: String, name: String)] { Array(people.dropFirst().prefix(speakers)) }
 
@@ -113,16 +131,17 @@ final class DemoFeed {
         switch roll {
         case 0..<62:
             let author = speakerPool.randomElement()!
-            post(from: author.fp, text: Self.lines.randomElement()!)
+            post(from: author.fp, text: nextLine())
         case 62..<72:
             if let id = recent.randomElement() { react(id, ["👍", "🔥", "lol", "+1"].randomElement()!, by: speakerPool.randomElement()!.fp) }
         case 72..<78:
             if let id = recent.last, let author = (messages[id]?["author"] as? [String: Any])?["identity"] as? String, author != me {
-                edit(id, text: (messages[id]?["text"] as? String ?? "") + " (fixed typo)")
+                edit(id, text: (messages[id]?["text"] as? String ?? "") + " (edit: typo)")
             }
         case 78..<86:
             let author = speakerPool.randomElement()!
-            post(from: author.fp, text: "<@\(me)> what do you think?", mentions: [me])
+            let text = script.mentions.randomElement()!.replacingOccurrences(of: "{me}", with: "<@\(me)>")
+            post(from: author.fp, text: text, mentions: [me])
         case 86..<93:
             // A lurker leaves (in one of several ways) or someone new arrives.
             let lurkers = people.dropFirst(speakers + 1)
@@ -207,10 +226,14 @@ final class DemoFeed {
     /// an invite.
     static func listing() -> [Room] {
         let rooms: [(String, String, Int, Int, String)] = [
-            ("lobby", "say hi", 14, 9, "open"), ("ai", "talk about models", 9, 6, "open"),
-            ("games", "members only", 6, 4, "key"), ("help", "ask anything", 5, 2, "open"),
-            ("news", "links and headlines", 4, 1, "open"), ("late-night", "by invitation", 3, 3, "invite"),
-            ("quiet", "", 2, 0, "open"), ("retro", "old machines", 1, 0, "open"),
+            ("conformance", "test your client here: say !test", 12, 8, "open"),
+            ("protocol", "the spec, line by line", 9, 6, "open"),
+            ("showcase", "show off your client", 7, 4, "open"),
+            ("games", "members only · ask for the key", 6, 4, "key"),
+            ("help", "new here? ask anything", 5, 2, "open"),
+            ("late-night", "by invitation", 4, 3, "invite"),
+            ("retro", "old machines, older protocols", 3, 1, "open"),
+            ("quiet", "", 2, 0, "open"),
         ]
         return rooms.enumerated().compactMap { index, spec in
             let (name, topic, people, recent, access) = spec

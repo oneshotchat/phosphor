@@ -67,7 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             args.removeSubrange(i...(i + 1))
         }
         if args.contains("--demo") || env["PHOSPHOR_DEMO"] != nil {
-            controller.startDemo(speakers: env["PHOSPHOR_DEMO_SPEAKERS"].flatMap(Int.init) ?? 3)
+            controller.startDemo(speakers: env["PHOSPHOR_DEMO_SPEAKERS"].flatMap(Int.init) ?? 3,
+                                 name: env["PHOSPHOR_DEMO_NAME"] ?? "you")
             if let index = env["PHOSPHOR_ACTIVE"].flatMap(Int.init) { controller.activate(index: index) }
         } else {
             let room = args.first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"]

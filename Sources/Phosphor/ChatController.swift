@@ -63,6 +63,7 @@ final class ChatController {
     /// Offline scripted rooms (`--demo`); when present they replace the session entirely.
     private var demos: [String: DemoFeed] = [:]
     private var demoMe: String?
+    private var demoName = "you"
 
     func state(_ room: String) -> RoomState? { demos[room]?.state ?? session?.rooms[room] }
     var state: RoomState? { activeRoom.flatMap(state) }
@@ -242,18 +243,19 @@ final class ChatController {
         return String(String(describing: error).prefix(60))
     }
 
-    func startDemo(speakers: Int) {
+    func startDemo(speakers: Int, name: String) {
         let me = Identity.generate().fingerprint
         demoMe = me
-        displayName = "you"
+        demoName = name
+        displayName = name
         let specs: [(String, String, Int, ClosedRange<Int>)] = [
-            ("demo", "offline demo · nothing here is real", speakers, 1400...3200),
-            ("dev", "a busy room", 6, 700...1800),
-            ("art", "a slow room", 2, 5000...11000),
-            ("music", "an even slower room", 1, 9000...20000),
+            ("lobby", "say hi · messages last 7 days", speakers, 1600...3600),
+            ("dev", "building OneShotChat clients", 6, 900...2200),
+            ("clients", "show and tell: new clients", 3, 4000...9000),
+            ("offtopic", "everything else", 1, 9000...20000),
         ]
         for (name, topic, speakers, pace) in specs {
-            let feed = DemoFeed(name: name, topic: topic, me: me, speakers: speakers, pace: pace)
+            let feed = DemoFeed(name: name, topic: topic, me: me, myName: self.demoName, speakers: speakers, pace: pace)
             feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
             feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
             demos[feed.roomID] = feed
@@ -262,7 +264,7 @@ final class ChatController {
         }
         activate(rooms[0])
         listed = DemoFeed.listing()
-        note(.info, "offline demo rooms: nothing is sent anywhere")
+        note(.info, "demo mode · offline")
     }
 
     // MARK: rooms
@@ -363,7 +365,7 @@ final class ChatController {
     /// In the demo, a listed room becomes another scripted feed (any key or code works).
     private func joinDemo(_ room: Room) {
         guard let me = demoMe else { return }
-        let feed = DemoFeed(name: room.name, topic: room.topic ?? "", me: me, speakers: 2, pace: 3000...8000)
+        let feed = DemoFeed(name: room.name, topic: room.topic ?? "", me: me, myName: demoName, speakers: 2, pace: 3000...8000)
         feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
         feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
         demos[feed.roomID] = feed
