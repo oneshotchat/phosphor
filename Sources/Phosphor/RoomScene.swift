@@ -80,6 +80,17 @@ final class RoomScene {
     private(set) var curl: Float = 0
     var targetCurl: Float = 0
 
+    // Set by the renderer from the ring/row layout each frame.
+    struct Placement {
+        var origin = SIMD3<Float>(0, 0, 0)       // front middle of the base
+        var normal = SIMD3<Float>(0, 0, 1)       // the way the wall faces
+    }
+    var placement = Placement()
+    /// Background rooms glow less, and far away their messages are drawn as bars.
+    var dim: Float = 1
+    var detailed = true
+    var isActive = true
+
     /// Where each visible message sits this frame, for reading mode.
     private(set) var panelFrames: [Int: PanelFrame] = [:]
     private(set) var newestVisible: Int?
@@ -100,6 +111,12 @@ final class RoomScene {
     }
 
     /// Forget animations (room switched or reloaded). Existing people and messages just appear.
+    /// A newly joined background room starts as a cylinder rather than unrolling into one.
+    func startRolledUp() {
+        curl = 1
+        targetCurl = 1
+    }
+
     func reset() {
         people = [:]
         panels = [:]
@@ -136,8 +153,12 @@ final class RoomScene {
     // MARK: build
 
     func build(into g: inout FrameGeometry, state: RoomState?, theme: Theme, me: String, origin: String,
-               focus: Int?, eye: SIMD3<Float>, cameraRight: SIMD3<Float>, cameraUp: SIMD3<Float>, viewY: Float) {
+               focus: Int?, eye: SIMD3<Float>, cameraRight: SIMD3<Float>, cameraUp: SIMD3<Float>, viewY: Float,
+               index: Int, activity: ChatController.Activity) {
         let now = AppClock.now
+        let savedGain = g.gain
+        g.gain = dim
+        defer { g.gain = savedGain }
         skyStart = viewY + skyFadeStart
         skyEnd = viewY + skyFadeEnd
         let dt = min(max(now - lastBuild, 0), 0.1)
@@ -145,7 +166,8 @@ final class RoomScene {
         curl += (targetCurl - curl) * min(1, dt * 3)
         beams.removeAll { now - $0.at > 1.4 }
 
-        let surface = Surface(origin: [0, 0, 0], right: [1, 0, 0], normal: [0, 0, 1], width: wallWidth, curl: curl)
+        let n = placement.normal
+        let surface = Surface(origin: placement.origin, right: SIMD3(n.z, 0, -n.x), normal: n, width: wallWidth, curl: curl)
         buildFloor(into: &g, theme: theme, surface: surface)
         guard let state else {
             panelFrames = [:]
@@ -213,15 +235,28 @@ final class RoomScene {
                        intensity: 2.2 * (1 - smoothstep(0.8, 1.4, age)), width: 2.5, fraction: smoothstep(0, 0.6, age))
         }
 
-        // Room name painted on the floor in front of the wall, like a plinth.
-        let floorUp = SIMD3<Float>(0, 0, -1), floorRight = SIMD3<Float>(1, 0, 0)
-        let plinth = surface.point(-wallWidth / 2, 0) + SIMD3(0, 0.02, 3.2 * (1 - curl))
-        g.text("#" + SafeText.clean(state.room.name), atlas: atlas, origin: plinth, right: floorRight, up: floorUp,
-               height: 0.9, color: theme.primary, intensity: 1.1 * curl)
-        let topic = SafeText.clean(state.room.topic ?? "").replacingOccurrences(of: "\n", with: " ")
-        if !topic.isEmpty {
-            g.text(topic, atlas: atlas, origin: plinth + SIMD3(0, 0, 0.75), right: floorRight, up: floorUp,
-                   height: 0.32, color: theme.primary, intensity: 0.6 * curl)
+        // Rolled up in the background: its name and ⌘ number on the floor in front, a
+        // brighter base while it has unread messages, and a beacon if you were mentioned.
+        if curl > 0.05 {
+            var label = "⌘\(index + 1) #" + SafeText.clean(state.room.name)
+            if activity.unread > 0 { label += "  •\(activity.unread)" }
+            if activity.mentioned { label += "  @you" }
+            let height: Float = 1.1
+            let w = FrameGeometry.textWidth(label, atlas: atlas, height: height)
+            g.text(label, atlas: atlas, origin: placement.origin + n * 1.6 - surface.right * (w / 2) + SIMD3(0, 0.02, 0),
+                   right: surface.right, up: -n, height: height,
+                   color: activity.mentioned ? theme.accent : theme.primary, intensity: (activity.unread > 0 ? 1.4 : 0.8) * curl)
+            if activity.unread > 0 {
+                g.surfaceLine(surface, s0: -wallWidth / 2, s1: wallWidth / 2, y: 0.05, theme.primary,
+                              intensity: min(Float(activity.unread), 8) * 0.25 * curl, width: 2.5)
+            }
+            if activity.mentioned {
+                g.gain = 1
+                let center = surface.point(0, 0) - n * surface.cylinderRadius * curl
+                let pulse = 1.4 + 0.8 * sin(now * 4)
+                g.line(center, center + SIMD3(0, 22, 0), theme.accent, intensity: pulse * curl, width: 3)
+                g.gain = dim
+            }
         }
     }
 
@@ -285,8 +320,11 @@ final class RoomScene {
         for message in newestFirst {
             let textLines = lines(for: message, labels: labels, maxWidth: maxWidth - pad * 2)
             let height = panelHeight(lines: textLines.count, reactions: hasReactions(message))
-            let bottom = cursor
-            cursor += height + gap
+            // In the background, messages also rise with age, so a cylinder's fullness is
+            // its recent activity; the active room stacks by count so nothing drifts off unread.
+            let age = message.createdAt.map { Float(-$0.timeIntervalSinceNow) } ?? 0
+            let bottom = max(cursor, baseY + age * 0.05 * curl)
+            cursor = bottom + height + gap
             targets[message.id] = bottom
             if nearest == nil || abs(bottom - viewY) < nearest!.distance { nearest = (message.id, abs(bottom - viewY)) }
 
@@ -374,6 +412,26 @@ final class RoomScene {
         let authorColor = people[message.author.identity].map { color(hue: $0.hue, theme: theme) }
             ?? color(hue: hue(of: message.author.identity), theme: theme)
         let textS = s0 + pad
+        guard detailed else {
+            // Far away: each line as a bar, written on like the text would be.
+            var y = y1 - pad - labelHeight * 0.45
+            g.surfaceLine(surface, s0: textS, s1: textS + min(textWidth(label, height: labelHeight), s1 - s0 - pad * 2), y: y,
+                          authorColor, intensity: 0.7 * bright * smoothstep(-0.1, 0.3, facing), width: 2)
+            y -= labelHeight * 0.4 + textHeight * 0.85
+            var remaining = visual.arrivedAt < -50 ? Float.infinity : max(0, age - beamTime - 0.25) * glyphsPerSecond
+            for line in textLines {
+                let shown = min(1, remaining / Float(max(line.count, 1)))
+                if shown > 0 {
+                    let w = textWidth(line, height: textHeight) * shown
+                    let mid = textS + w / 2
+                    let visible = smoothstep(-0.1, 0.3, simd_dot(surface.normal(at: mid), simd_normalize(eye - surface.point(mid, y))))
+                    g.surfaceLine(surface, s0: textS, s1: textS + w, y: y, theme.primary, intensity: bright * visible, width: 2.6)
+                }
+                remaining -= Float(line.count)
+                y -= textHeight * 1.25
+            }
+            return
+        }
         var baseline = y1 - pad - labelHeight * 0.8
         g.surfaceText(label, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: labelHeight,
                       color: signatureStatus(message, origin: origin) == .invalid ? theme.accent : authorColor,
@@ -455,7 +513,7 @@ final class RoomScene {
                            width: speaker ? width : 1, fraction: draw)
             }
         }
-        guard speaker else { return }
+        guard speaker, curl < 0.5 else { return }
         let label = SafeText.clean(person.name)
         let w = FrameGeometry.textWidth(label, atlas: atlas, height: 0.28)
         g.text(label, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * (size + 0.45),
@@ -463,13 +521,6 @@ final class RoomScene {
     }
 
     private func buildFloor(into g: inout FrameGeometry, theme: Theme, surface: Surface) {
-        let extent: Float = 40
-        var x = -extent
-        while x <= extent {
-            g.line([x, 0, -extent], [x, 0, extent], theme.grid, intensity: 0.45, width: 1)
-            g.line([-extent, 0, x], [extent, 0, x], theme.grid, intensity: 0.45, width: 1)
-            x += 2
-        }
         // The wall's footprint and its edges rising into the sky.
         let half = wallWidth / 2
         g.surfaceLine(surface, s0: -half, s1: half, y: 0.02, theme.primary, intensity: 0.8, width: 1.4)

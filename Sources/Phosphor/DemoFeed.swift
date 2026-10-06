@@ -6,13 +6,16 @@ import OSCCore
 /// and event path, so the scene can't tell the difference.
 ///
 ///     swift run Phosphor --demo               (PHOSPHOR_DEMO_SPEAKERS=6 for the two-column layout)
+///
+/// The demo runs several of these, one per room, at different paces.
 @MainActor
 final class DemoFeed {
     private(set) var state: RoomState
     let me: String
     var onEvent: ((Event) -> Void)?
 
-    private let roomID = "demo0000000000000000000000"
+    let roomID: String
+    private let pace: ClosedRange<Int>
     private var seq = 100
     private var people: [(fp: String, name: String)] = []
     private var present: Set<String> = []
@@ -37,16 +40,18 @@ final class DemoFeed {
         "rooms expire after 7 days with nobody in them",
     ]
 
-    init(speakers: Int = 3) {
+    init(name: String, topic: String, me: String, speakers: Int, pace: ClosedRange<Int>) {
         self.speakers = max(1, speakers)
-        me = Identity.generate().fingerprint
+        self.me = me
+        self.pace = pace
+        roomID = String((name + String(repeating: "0", count: 26)).prefix(26)).lowercased()
         let names = ["sam", "sam", "ada", "kit", "noor", "lev", "ines", "tomo", "rue", "bo", "cy", "dee"]
         people = [(me, "you")] + names.map { (Identity.generate().fingerprint, $0) }
         present = Set(people.prefix(9).map(\.fp))
 
         let occupants = people.prefix(9).map { ["identity": $0.fp, "name": $0.name, "role": NSNull()] as [String: Any] }
         let room: [String: Any] = [
-            "id": roomID, "name": "demo", "topic": "offline demo · nothing here is real",
+            "id": roomID, "name": name, "topic": topic,
             "visibility": "listed", "access": "open", "speaking": "open", "retention_seconds": 3600,
             "latest_seq": seq, "occupant_count": occupants.count, "occupants": occupants,
         ]
@@ -68,7 +73,7 @@ final class DemoFeed {
     func start() {
         task = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(Int.random(in: 1400...3200)))
+                try? await Task.sleep(for: .milliseconds(Int.random(in: self?.pace ?? 2000...3000)))
                 self?.step()
             }
         }

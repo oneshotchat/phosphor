@@ -39,6 +39,25 @@ struct HUD {
         }
         text("you: \(SafeText.clean(myLabel))   /help for commands", mx, y, 12, theme.primary, 0.6)
 
+        // Joined rooms, top right: ⌘ number, name, unread count, and @ if you were mentioned.
+        var items: [(String, SIMD3<Float>, Float)] = []
+        for (i, room) in controller.rooms.enumerated() {
+            let name = controller.state(room).map { "#" + SafeText.clean($0.room.name) } ?? "…"
+            let activity = controller.activity[room] ?? ChatController.Activity()
+            let active = room == controller.activeRoom
+            var item = "\(i + 1) \(name)"
+            if activity.unread > 0 { item += " •\(activity.unread)" }
+            if activity.mentioned { item += " @" }
+            items.append((active ? "[\(item)]" : item, active || activity.mentioned ? theme.accent : theme.primary,
+                          active ? 1.3 : activity.unread > 0 ? 1 : 0.55))
+        }
+        let spacing = 16 * scale
+        var rx = viewport.x - mx - items.reduce(0) { $0 + width($1.0, 13) + spacing } + spacing
+        for (item, color, intensity) in items {
+            text(item, rx, viewport.y - my - 16 * scale, 13, color, intensity)
+            rx += width(item, 13) + spacing
+        }
+
         // Notices fade after a while. Server notices get their own color: only they come from the server.
         for notice in controller.notices.reversed() {
             let age = now - notice.at

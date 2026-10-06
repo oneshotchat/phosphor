@@ -1,4 +1,5 @@
 import MetalKit
+import OSCCore
 import QuartzCore
 import simd
 
@@ -28,7 +29,21 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let atlas: GlyphAtlas
-    let scene: RoomScene
+    /// One scene per joined room; the active one is flat in front, the rest roll up into
+    /// cylinders arranged by `layout`.
+    private var scenes: [String: RoomScene] = [:]
+    private var placements: [String: RoomScene.Placement] = [:]
+    private var ringAngle: Float = 0
+    private var layoutChangedAt: Float = -100
+    private var roomsMovedAt: Float = -100
+    var layout: RoomLayout = RoomLayout(rawValue: UserDefaults.standard.string(forKey: "roomLayout") ?? "") ?? .ring {
+        didSet {
+            UserDefaults.standard.set(layout.rawValue, forKey: "roomLayout")
+            layoutChangedAt = AppClock.now
+            roomsMovedAt = AppClock.now
+        }
+    }
+    private var activeScene: RoomScene? { controller.activeRoom.flatMap { scenes[$0] } }
     private let hud: HUD
     private let controller: ChatController
     private weak var phosphorView: PhosphorView?
@@ -49,6 +64,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var bloomLevels: [MTLTexture] = []
 
     private var lastFrameTime = CACurrentMediaTime()
+    private var frameTimes: [Float] = []
+    private var lastCPU: Float = 0
+    private static let logFPS = ProcessInfo.processInfo.environment["PHOSPHOR_FPS"] != nil
     private var effects: Float = 1          // eases between full CRT (1) and clean (0)
     private var eye = SIMD3<Float>(0, 0, 0)
     private var lookTarget = SIMD3<Float>(0, 0, 0)
@@ -64,7 +82,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         self.device = device
         self.queue = queue
         atlas = GlyphAtlas(device: device)
-        scene = RoomScene(atlas: atlas)
         hud = HUD(atlas: atlas)
         self.controller = controller
         phosphorView = view
@@ -104,8 +121,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         if let snapshot {
             readingMode = snapshot.readingMode
             themeIndex = snapshot.theme % Theme.all.count
-            scene.targetCurl = snapshot.curl
             camera.liftTarget = snapshot.lift
+            if let layout = snapshot.layout { self.layout = layout }
         }
     }
 
@@ -158,6 +175,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         let now = CACurrentMediaTime()
         let dt = Float(min(now - lastFrameTime, 0.1))
         lastFrameTime = now
+        frameTimes.append(Float(now))
+        if let first = frameTimes.first, Float(now) - first > 2 {
+            if Self.logFPS { fputs(String(format: "fps %.0f  cpu %.1f ms/frame\n", Float(frameTimes.count) / (Float(now) - first), lastCPU * 1000), stderr) }
+            frameTimes.removeAll()
+        }
+        let cpuStart = CACurrentMediaTime()
+        defer { lastCPU = Float(CACurrentMediaTime() - cpuStart) }
         let time = AppClock.now
 
         effects += ((crtEnabled && !readingMode ? 1 : 0) - effects) * min(1, dt * 6)
@@ -168,9 +192,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         // Scrollback: lift eases at the same rate panels glide, so both move together.
         camera.liftTarget = simd_clamp(camera.liftTarget, 0, maxLift)
         camera.lift += (camera.liftTarget - camera.lift) * min(1, dt * 8)
-        scene.isLifted = camera.liftTarget > 1
+        activeScene?.isLifted = camera.liftTarget > 1
         var desiredEye = camera.eye, desiredTarget = camera.center
-        if readingMode, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
+        if readingMode, let scene = activeScene, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
             // Back off until the whole panel fits on screen, with a margin.
             let fitWidth = panel.width / 2 * 1.2 / (tan(fovy / 2) * aspect)
             let fitHeight = panel.height / 2 * 1.6 / tan(fovy / 2)
@@ -193,9 +217,16 @@ final class Renderer: NSObject, MTKViewDelegate {
         let pixelScale = Float(view.window?.backingScaleFactor ?? 2)
         var geometry = FrameGeometry()
         geometry.pixelScale = pixelScale
-        scene.build(into: &geometry, state: controller.state, theme: theme, me: controller.me, origin: controller.origin,
-                    focus: controller.focus, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
-                    viewY: lookTarget.y)
+        geometry.floorGrid(theme: theme)
+        arrangeRooms(dt: dt, time: time)
+        for (index, room) in controller.rooms.enumerated() {
+            guard let scene = scenes[room] else { continue }
+            let active = room == controller.activeRoom
+            scene.build(into: &geometry, state: controller.state(room), theme: theme, me: controller.me, origin: controller.origin,
+                        focus: active ? controller.focus : nil, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
+                        viewY: active ? lookTarget.y : camera.target.y, index: index,
+                        activity: controller.activity[room] ?? ChatController.Activity())
+        }
         keepScrollbackSteady()
 
         // HUD in drawable pixels, origin bottom-left.
@@ -203,8 +234,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         hudGeometry.pixelScale = pixelScale
         let viewport = SIMD2(Float(size.width), Float(size.height))
         if let input = phosphorView?.input {
-            let hint: String? = !scene.isLifted ? nil
-                : scene.unseen > 0 ? "↓ \(scene.unseen) new  ·  ⌘↓ latest" : "scrolled up  ·  ⌘↓ latest"
+            let unseen = activeScene?.unseen ?? 0
+            let hint: String? = activeScene?.isLifted != true ? nil
+                : unseen > 0 ? "↓ \(unseen) new  ·  ⌘↓ latest" : "scrolled up  ·  ⌘↓ latest"
             hud.build(into: &hudGeometry, viewport: viewport, scale: pixelScale, controller: controller, input: input,
                       theme: theme, hint: hint)
         }
@@ -224,7 +256,10 @@ final class Renderer: NSObject, MTKViewDelegate {
         let previous = accum[accumIndex]
         accumIndex ^= 1
         let current = accum[accumIndex]
-        var decay = powf(simd_mix(0.55, 0.8, effects), dt * 60)
+        // Shorter persistence while rooms are rearranging: every line on screen moves at
+        // once, and full trails turn the switch into a smear.
+        let rearranging = 1 - smoothstep(0.6, 1.6, time - roomsMovedAt)
+        var decay = powf(simd_mix(0.55, 0.8, effects) * (1 - 0.35 * rearranging), dt * 60)
         if let enc = pass(cb, current, clear: false) {
             enc.setRenderPipelineState(persistPipeline)
             enc.setFragmentTexture(sceneTexture, index: 0)
@@ -290,12 +325,88 @@ final class Renderer: NSObject, MTKViewDelegate {
         cb.commit()
     }
 
+    // MARK: rooms
+
+    func handle(_ event: Event, in room: String) { scenes[room]?.handle(event) }
+    func reload(_ room: String) { scenes[room]?.reset() }
+
+    /// Switching rooms starts the new one at its latest messages.
+    func activeChanged(from old: String?, to new: String?) {
+        camera.liftTarget = 0
+        anchor = nil
+        readingMode = false
+        roomsMovedAt = AppClock.now
+        if let old { scenes[old]?.isLifted = false }
+    }
+
+    /// Creates scenes for new rooms, drops departed ones, and moves every room toward its
+    /// spot in the ring or row: the active room flat at the front, the rest rolled up.
+    private func arrangeRooms(dt: Float, time: Float) {
+        let rooms = controller.rooms
+        for id in scenes.keys where !rooms.contains(id) {
+            scenes[id] = nil
+            placements[id] = nil
+        }
+        let count = rooms.count
+        guard count > 0 else { return }
+        let activeIndex = controller.activeRoom.flatMap { rooms.firstIndex(of: $0) } ?? 0
+        let step = 2 * Float.pi / Float(count)
+        let radius = max(15, Float(count) * 11 / (2 * .pi))
+        var delta = -Float(activeIndex) * step - ringAngle
+        delta = atan2(sin(delta), cos(delta))          // spin the short way round
+        ringAngle += delta * min(1, dt * 3)
+
+        // Ring targets move smoothly as the ring spins, so follow them closely; a layout
+        // switch eases everything across.
+        let follow = min(1, dt * (time - layoutChangedAt < 1.5 ? 3 : 10))
+        let cameraFloor = SIMD3<Float>(0, 0, 19)
+        for (i, id) in rooms.enumerated() {
+            let active = i == activeIndex
+            let target: SIMD3<Float> = switch layout {
+            case .ring:
+                SIMD3(sin(Float(i) * step + ringAngle) * radius, 0, cos(Float(i) * step + ringAngle) * radius - radius)
+            case .row:
+                // A line in the distance with a gap in the middle, so the rooms flank the
+                // active wall instead of hiding behind it. Slots follow join order, so a
+                // room always returns to the same place.
+                active ? .zero : rowSlot(i, of: count)
+            }
+            var p = placements[id] ?? RoomScene.Placement(origin: target)
+            p.origin += (target - p.origin) * (layout == .row ? min(1, dt * 3) : follow)
+            let toCamera = cameraFloor - p.origin
+            p.normal = simd_length(toCamera) > 0.01 ? simd_normalize(SIMD3(toCamera.x, 0, toCamera.z)) : SIMD3(0, 0, 1)
+            placements[id] = p
+
+            let scene: RoomScene
+            if let existing = scenes[id] {
+                scene = existing
+            } else {
+                scene = RoomScene(atlas: atlas)
+                scene.startRolledUp()
+                scenes[id] = scene
+            }
+            scene.placement = p
+            scene.targetCurl = active ? 0 : 1
+            scene.isActive = active
+            scene.dim = active ? 1 : 0.5
+            scene.detailed = active || simd_distance(eye, p.origin) < 24
+        }
+    }
+
+    private func rowSlot(_ i: Int, of count: Int) -> SIMD3<Float> {
+        let t = count > 1 ? Float(i) / Float(count - 1) * 2 - 1 : 0      // -1 … 1
+        let gap: Float = 17, span: Float = 31
+        let x = t == 0 ? 0 : (t < 0 ? -1 : 1) * (gap + abs(t) * (span - gap))
+        return SIMD3(x, 0, -26)
+    }
+
     /// The highest the view may fly: the top of everything loaded.
-    private var maxLift: Float { max(0, scene.stackTop - camera.target.y - 2) }
+    private var maxLift: Float { max(0, (activeScene?.stackTop ?? 0) - camera.target.y - 2) }
 
     /// While scrolled up, new messages push the stack up from below; lift the view by the
     /// same amount so the message being read stays put. Near the top, fetch older history.
     private func keepScrollbackSteady() {
+        guard let scene = activeScene else { return }
         if scene.isLifted, let anchor, let now = scene.targetBottoms[anchor.id] {
             camera.liftTarget += now - anchor.y
         }
@@ -336,6 +447,13 @@ final class Renderer: NSObject, MTKViewDelegate {
     private func makeBuffer<T>(_ items: [T]) -> MTLBuffer? {
         items.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) }
     }
+}
+
+enum RoomLayout: String {
+    /// Rooms on a circle; switching spins it.
+    case ring
+    /// Rooms in a line behind; the active one comes forward.
+    case row
 }
 
 enum RendererError: Error {

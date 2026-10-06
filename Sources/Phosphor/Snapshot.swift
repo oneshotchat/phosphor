@@ -12,12 +12,14 @@ final class Snapshot {
     let at: Float
     let readingMode: Bool
     let theme: Int
-    let curl: Float
+    let layout: RoomLayout?
+    let activeIndex: Int?
     let lift: Float
     private var taken = false
 
-    private init(path: String, at: Float, readingMode: Bool, theme: Int, curl: Float, lift: Float) {
-        self.curl = curl
+    private init(path: String, at: Float, readingMode: Bool, theme: Int, layout: RoomLayout?, activeIndex: Int?, lift: Float) {
+        self.layout = layout
+        self.activeIndex = activeIndex
         self.lift = lift
         self.path = path
         self.at = at
@@ -33,7 +35,8 @@ final class Snapshot {
             at: env["PHOSPHOR_SNAPSHOT_AT"].flatMap(Float.init) ?? 6,
             readingMode: env["PHOSPHOR_READING"] == "1",
             theme: env["PHOSPHOR_THEME"].flatMap(Int.init) ?? 0,
-            curl: env["PHOSPHOR_CURL"].flatMap(Float.init) ?? 0,
+            layout: env["PHOSPHOR_LAYOUT"].flatMap(RoomLayout.init(rawValue:)),
+            activeIndex: env["PHOSPHOR_ACTIVE"].flatMap(Int.init),
             lift: env["PHOSPHOR_LIFT"].flatMap(Float.init) ?? 0
         )
     }
@@ -84,8 +87,9 @@ enum DevInput {
         setvbuf(stdout, nil, _IOLBF, 0)
         // Echo the room as text so a script can follow along.
         let previous = controller.onEvent
-        controller.onEvent = { event in
-            previous?(event)
+        controller.onEvent = { room, event in
+            previous?(room, event)
+            guard room == controller.activeRoom else { return }
             switch event.payload {
             case .messageCreated(let m), .messageEdited(let m):
                 let label = controller.state?.labels[m.author.identity] ?? m.author.name

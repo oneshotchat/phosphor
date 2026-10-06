@@ -63,10 +63,12 @@ struct FrameGeometry {
     var lines: [LineInstance] = []
     var glyphs: [GlyphInstance] = []
     var pixelScale: Float = 1
+    /// Multiplies every intensity; background rooms draw with less.
+    var gain: Float = 1
 
     mutating func line(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ color: SIMD3<Float>, intensity: Float = 1, width: Float = 1.5) {
-        guard intensity > 0.001 else { return }
-        lines.append(LineInstance(a: SIMD4(a, width * pixelScale), b: SIMD4(b, 0), color: SIMD4(color, intensity)))
+        guard intensity * gain > 0.001 else { return }
+        lines.append(LineInstance(a: SIMD4(a, width * pixelScale), b: SIMD4(b, 0), color: SIMD4(color, intensity * gain)))
     }
 
     /// Draws the first `fraction` of the polyline's length: the beam drawing it on.
@@ -107,8 +109,18 @@ struct FrameGeometry {
                 right: SIMD4(right * (e.size.x * scale), 0),
                 up: SIMD4(up * (e.size.y * scale), 0),
                 uvRect: e.uvRect,
-                color: SIMD4(color, intensity * burn)
+                color: SIMD4(color, intensity * burn * gain)
             ))
+        }
+    }
+
+    /// The floor: a grid fading into the distance.
+    mutating func floorGrid(theme: Theme, extent: Float = 60) {
+        var x = -extent
+        while x <= extent {
+            line([x, 0, -extent], [x, 0, extent], theme.grid, intensity: 0.45, width: 1)
+            line([-extent, 0, x], [extent, 0, x], theme.grid, intensity: 0.45, width: 1)
+            x += 2
         }
     }
 
@@ -161,7 +173,7 @@ struct FrameGeometry {
                 right: SIMD4(surface.tangent(at: gs + w / 2) * w, 0),
                 up: SIMD4(up * (e.size.y * scale), 0),
                 uvRect: e.uvRect,
-                color: SIMD4(color, intensity * Self.burn(ahead) * fade)
+                color: SIMD4(color, intensity * Self.burn(ahead) * fade * gain)
             ))
         }
     }
