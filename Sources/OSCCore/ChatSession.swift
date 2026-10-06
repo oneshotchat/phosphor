@@ -15,8 +15,10 @@ public final class ChatSession {
         case reloaded(room: String)
         /// Older messages were merged in for scrollback.
         case historyLoaded(room: String, hasMore: Bool)
-        /// We're no longer in the room (kicked or banned, or a rejoin failed).
-        case left(room: String, reason: String)
+        /// We're no longer in the room. `reason` is left, kicked, banned or rejoin_failed;
+        /// `detail` is a kick reason or the rejoin error. `name` is the room's name, since
+        /// its state is already gone.
+        case left(room: String, name: String, reason: String, detail: String?)
         /// Someone mentioned us, in any room.
         case mention(MentionItem)
         /// From the server: a room `notice` event, or a per-session notice (`room` nil).
@@ -84,9 +86,10 @@ public final class ChatSession {
 
     public func leave(_ room: String) async throws {
         try await client.leave(room: room)
+        let name = rooms[room]?.room.name ?? room
         rooms[room] = nil
         roomKeys[room] = nil
-        emit(.left(room: room, reason: "left"))
+        emit(.left(room: room, name: name, reason: "left", detail: nil))
     }
 
     /// Older messages for scrollback, merged into the room's state.
@@ -184,8 +187,9 @@ public final class ChatSession {
                 // Presence lapsed (laptop slept, say). Roles are kept; just come back.
                 await rejoin(event.room)
             } else {
+                let name = rooms[event.room]?.room.name ?? event.room
                 rooms[event.room] = nil
-                emit(.left(room: event.room, reason: left.reason ?? "left"))
+                emit(.left(room: event.room, name: name, reason: left.reason ?? "left", detail: left.message))
             }
         }
     }
@@ -225,7 +229,7 @@ public final class ChatSession {
             await catchUp(id)
         } catch {
             rooms[id] = nil
-            emit(.left(room: id, reason: "rejoin failed: \(error)"))
+            emit(.left(room: id, name: name, reason: "rejoin_failed", detail: "\(error)"))
         }
     }
 

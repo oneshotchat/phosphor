@@ -626,8 +626,15 @@ final class ChatController {
             onEvent?(room, event)
         case .reloaded(let room):
             onRoomReloaded?(room)
-        case .left(let room, let reason):
-            note(reason == "left" ? .info : .error, "left #\(state(room)?.room.name ?? "?"): \(reason)")
+        case .left(let room, let name, let reason, let detail):
+            let detail = detail.map { ": \($0)" } ?? ""
+            switch reason {
+            case "left": note(.info, "left #\(name)")
+            case "kicked": note(.error, "you were kicked from #\(name)\(detail)")
+            case "banned": note(.error, "you were banned from #\(name)\(detail)")
+            case "rejoin_failed": note(.error, "lost #\(name), couldn't rejoin\(detail)")
+            default: note(.error, "left #\(name) (\(reason))\(detail)")
+            }
             removeRoom(room)
         case .mention(let item) where !rooms.contains(item.room.id):
             note(.mention, "\(item.message.author.name) mentioned you in #\(item.room.name)")

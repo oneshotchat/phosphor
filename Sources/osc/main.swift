@@ -135,7 +135,8 @@ final class Chat {
         case .notice(_, let notice): print("!! SERVER NOTICE (\(safe(notice.code))): \(safe(notice.text))")
         case .mention(let item) where item.room.id != roomID:
             print("· mentioned in #\(safe(item.room.name)): \(render(item.message))")
-        case .left(let room, let reason) where room == roomID: print("· you left the room: \(safe(reason))")
+        case .left(let room, _, let reason, let detail) where room == roomID:
+            print("· you left the room: \(safe(reason))\(detail.map { ": " + safe($0) } ?? "")")
         case .error(let message): print("· error: \(safe(message))")
         default: break
         }

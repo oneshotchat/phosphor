@@ -213,6 +213,26 @@ private func makeClient() throws -> OSCClient {
         #expect(StubServer.seen.last!.body["expires_in"] as? Int == 86400)
     }
 
+    @MainActor @Test func leavingReportsTheRoomName() async throws {
+        let room = #"{"room":{"id":"r1","name":"secret","latest_seq":5},"role":null,"created":false}"#
+        StubServer.reset(loginReplies + [
+            .init(json: room),                                                        // join
+            .init(json: #"{"messages":[],"has_more":false}"#),                        // history
+            .init(json: #"{"events":[],"has_more":false,"latest_seq":5}"#),           // catch-up
+            .init(),                                                                  // leave
+        ])
+        let session = ChatSession(client: try makeClient())
+        var reported: (String, String)?
+        session.onUpdate = { update in
+            if case .left(let id, let name, let reason, _) = update { reported = (id + "/" + name, reason) }
+        }
+        try await session.join("secret")
+        try await session.leave("r1")
+        #expect(reported?.0 == "r1/secret")
+        #expect(reported?.1 == "left")
+        #expect(session.rooms["r1"] == nil)
+    }
+
     @Test func publicCallsDontLogIn() async throws {
         StubServer.reset([.init(json: #"{"rooms":[],"next":null}"#)])
         let client = try makeClient()
