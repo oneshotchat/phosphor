@@ -3,11 +3,11 @@ import OSCCore
 import simd
 
 /// Listed rooms you haven't joined, shown only in the overview (⌘L) as a row in front of
-/// the active room. They take the same form as joined rooms (flat walls in the row layout,
-/// cylinders in the ring) at the same size, but empty: you can't read a room you're not in.
-/// Instead, height shows how many are present, a pulse shows recent activity, and the
-/// occupants' glyphs stand inside so you can spot people you know. A room key cages it;
-/// invite-only seals its top.
+/// the active room, at the same size as joined rooms and without messages (you can't read
+/// a room you're not in). In the row layout each is just its base line with the people
+/// present standing on it, named, like a joined room's speakers. In the ring they're
+/// cylinders: height from headcount, occupants inside, a cage for a key and a sealed top
+/// for invite-only. Either way a pulse shows recent activity.
 @MainActor
 struct BrowserScene {
     let atlas: GlyphAtlas
@@ -21,7 +21,7 @@ struct BrowserScene {
     }
 
     func build(into g: inout FrameGeometry, rooms: [Placed], selected: String?, cylinders: Bool,
-               alpha: Float, theme: Theme) {
+               alpha: Float, theme: Theme, cameraRight: SIMD3<Float>, cameraUp: SIMD3<Float>) {
         guard alpha > 0.01 else { return }
         let now = AppClock.now
         let r = Self.width / 2
@@ -30,7 +30,7 @@ struct BrowserScene {
             let isSelected = room.id == selected
             let people = room.occupantCount ?? room.occupants?.count ?? 0
             let recent = room.activity?.messagesLast10m ?? 0
-            let height = 1.6 + min(Float(people), 20) * 0.22
+            let height = 1.6 + min(Float(people), 20) * 0.22      // cylinders only
             // Busier rooms pulse faster; a silent one just glows.
             let pulse = recent > 0 ? 0.75 + 0.25 * sin(now * (1 + min(Float(recent), 12) * 0.5) + placed.origin.x) : 0.85
             let color = isSelected ? theme.accent : theme.primary
@@ -60,42 +60,50 @@ struct BrowserScene {
                     }
                 }
             } else {
-                let x0 = o - SIMD3(r, 0, 0), x1 = o + SIMD3(r, 0, 0), up = SIMD3<Float>(0, height, 0)
-                g.polyline([x0, x1, x1 + up, x0 + up, x0], color, intensity: intensity, width: 1.4)
-                if room.access == "key" {                            // caged: vertical bars
-                    for i in 1..<16 {
-                        let p = x0 + SIMD3(Float(i), 0, 0)
-                        g.line(p, p + up, color, intensity: intensity * 0.45, width: 1)
-                    }
-                }
-                if room.access == "invite" {                         // sealed: a crossed top band
-                    let band = SIMD3<Float>(0, min(0.8, height * 0.3), 0)
-                    g.line(x0 + up - band, x1 + up - band, color, intensity: intensity * 0.7, width: 1)
-                    g.line(x0 + up - band, x1 + up, color, intensity: intensity * 0.5, width: 1)
-                    g.line(x0 + up, x1 + up - band, color, intensity: intensity * 0.5, width: 1)
-                }
+                // Flat: just the base line, pulsing with activity; the people stand on it.
+                g.line(o - SIMD3(r, -0.02, 0), o + SIMD3(r, 0.02, 0), color, intensity: intensity * 1.8, width: 2)
             }
 
-            // Who's inside (or standing along the wall), small.
-            let shown = min(people, 12)
-            for (i, occupant) in (room.occupants ?? []).prefix(12).enumerated() {
-                let position: SIMD3<Float>
-                if cylinders {
+            if cylinders {
+                // Who's inside, small.
+                let shown = min(people, 12)
+                for (i, occupant) in (room.occupants ?? []).prefix(12).enumerated() {
                     let a = Float(i) / Float(max(shown, 1)) * 2 * .pi + now * 0.1
-                    position = center + SIMD3(sin(a) * r * 0.55, 0.8, cos(a) * r * 0.55)
-                } else {
-                    position = o + SIMD3((Float(i) + 0.5) / Float(max(shown, 1)) * Self.width - r, 0.8, 0.6)
+                    let glyph = IdentityGlyph(fingerprint: occupant.identity)
+                    glyph.draw(into: &g, at: center + SIMD3(sin(a) * r * 0.55, 0.8, cos(a) * r * 0.55), size: 0.34,
+                               color: glyph.color(theme: theme), intensity: (isSelected ? 1.2 : 0.7) * alpha, width: 1, now: now)
                 }
-                let glyph = IdentityGlyph(fingerprint: occupant.identity)
-                glyph.draw(into: &g, at: position, size: 0.34, color: glyph.color(theme: theme),
-                           intensity: (isSelected ? 1.2 : 0.7) * alpha, width: 1, now: now)
+            } else {
+                // Standing on the line like a joined room's speakers, names underneath.
+                let occupants = Array((room.occupants ?? []).prefix(6))     // room for readable names
+                let labels = Tripcode.labels(for: occupants.map { ($0.name, $0.identity) })
+                for (i, occupant) in occupants.enumerated() {
+                    let s = -r + Self.width * (Float(i) + 0.5) / Float(occupants.count)
+                    let position = o + SIMD3(s, 1.05, 0.9)
+                    let glyph = IdentityGlyph(fingerprint: occupant.identity)
+                    let glyphColor = glyph.color(theme: theme)
+                    glyph.draw(into: &g, at: position, size: 0.55, color: glyphColor,
+                               intensity: (isSelected ? 1.5 : 1) * alpha, width: 1.6, now: now)
+                    let name = SafeText.clean(labels[occupant.identity] ?? occupant.name)
+                    let w = FrameGeometry.textWidth(name, atlas: atlas, height: 0.6)
+                    g.text(name, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * 1.2,
+                           right: cameraRight, up: cameraUp, height: 0.6, color: glyphColor,
+                           intensity: (isSelected ? 1.3 : 0.85) * alpha)
+                }
+                if people > occupants.count {
+                    let more = "+\(people - occupants.count)"
+                    g.text(more, atlas: atlas, origin: o + SIMD3(r + 0.4, 0.8, 0.9), right: cameraRight, up: cameraUp,
+                           height: 0.6, color: color, intensity: 0.8 * alpha)
+                }
             }
 
-            // Name and headcount on the floor in front.
-            let label = "#" + SafeText.clean(room.name) + "  \(people) here"
+            // Name, headcount and access on the floor in front (below the names, when flat).
+            var label = "#" + SafeText.clean(room.name) + "  \(people) here"
+            if room.access == "key" { label += " · key" }
+            if room.access == "invite" { label += " · invite only" }
             let size: Float = isSelected ? 1.3 : 1.0
             let w = FrameGeometry.textWidth(label, atlas: atlas, height: size)
-            g.text(label, atlas: atlas, origin: o + SIMD3(-w / 2, 0.03, 1.6 + size), right: [1, 0, 0], up: [0, 0, -1],
+            g.text(label, atlas: atlas, origin: o + SIMD3(-w / 2, 0.03, (cylinders ? 1.6 : 3.4) + size), right: [1, 0, 0], up: [0, 0, -1],
                    height: size, color: color, intensity: (isSelected ? 1.6 : 0.8) * alpha)
         }
     }
