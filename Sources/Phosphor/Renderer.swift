@@ -76,6 +76,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var lookTarget = SIMD3<Float>(0, 0, 0)
     private var hasCamera = false
     private let snapshot = Snapshot.fromEnvironment()
+    /// Applied once the starting room is up (switching rooms resets the scroll).
+    private var pendingSnapshotLift: Float?
 
     private var theme: Theme { Theme.all[themeIndex] }
 
@@ -125,7 +127,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         if let snapshot {
             readingMode = snapshot.readingMode
             themeIndex = snapshot.theme % Theme.all.count
-            camera.liftTarget = snapshot.lift
+            pendingSnapshotLift = snapshot.lift > 0 ? snapshot.lift : nil
             if let layout = snapshot.layout { self.layout = layout }
         }
     }
@@ -223,12 +225,16 @@ final class Renderer: NSObject, MTKViewDelegate {
         geometry.pixelScale = pixelScale
         geometry.floorGrid(theme: theme)
         arrangeRooms(dt: dt, time: time)
+        if let lift = pendingSnapshotLift, time > 1.5 {
+            camera.liftTarget = lift
+            pendingSnapshotLift = nil
+        }
         for (index, room) in controller.rooms.enumerated() {
             guard let scene = scenes[room] else { continue }
             let active = room == controller.activeRoom
             scene.build(into: &geometry, state: controller.state(room), theme: theme, me: controller.me, origin: controller.origin,
                         focus: active ? controller.focus : nil, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
-                        viewY: active ? lookTarget.y : camera.target.y, index: index,
+                        viewY: lookTarget.y, index: index,     // scrolling up lifts every room's sky
                         activity: controller.activity[room] ?? ChatController.Activity())
         }
         keepScrollbackSteady()

@@ -54,9 +54,12 @@ final class RoomScene {
     // Layout, in world units.
     let wallWidth: Float = 16
     private let baseY: Float = 2.1          // bottom of the newest message
-    // Messages fade into the sky this far above where you're looking.
+    // Messages fade into the sky this far above where you're looking. Rooms in the
+    // background stand further away with more sky in view, so theirs reaches much higher.
     private let skyFadeStart: Float = 4.6
     private let skyFadeEnd: Float = 8.3
+    private let backgroundSkyFadeStart: Float = 13
+    private let backgroundSkyFadeEnd: Float = 26
     private var skyStart: Float = 11.8
     private var skyEnd: Float = 15.5
     private let gap: Float = 0.28
@@ -162,12 +165,12 @@ final class RoomScene {
         let savedGain = g.gain
         g.gain = dim
         defer { g.gain = savedGain }
-        skyStart = viewY + skyFadeStart
-        skyEnd = viewY + skyFadeEnd
         let dt = min(max(now - lastBuild, 0), 0.1)
         lastBuild = now
         curl += (targetCurl - curl) * min(1, dt * 3)
         background += (targetBackground - background) * min(1, dt * 3)
+        skyStart = viewY + mix(skyFadeStart, backgroundSkyFadeStart, t: background)
+        skyEnd = viewY + mix(skyFadeEnd, backgroundSkyFadeEnd, t: background)
         beams.removeAll { now - $0.at > 1.4 }
 
         let n = placement.normal
