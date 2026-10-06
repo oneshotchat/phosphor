@@ -103,8 +103,24 @@ final class PhosphorView: MTKView, NSTextInputClient {
         renderer?.camera.orbit(dx: Float(event.deltaX), dy: Float(event.deltaY))
     }
 
+    /// Two-finger scroll flies up and down the wall (respecting natural scrolling), sideways
+    /// orbits; with ⌥ it moves forward and back. Pinch also zooms.
     override func scrollWheel(with event: NSEvent) {
-        renderer?.camera.zoom(by: Float(event.scrollingDeltaY) * (event.hasPreciseScrollingDeltas ? 0.01 : 0.1))
+        guard let renderer else { return }
+        let unit: Float = event.hasPreciseScrollingDeltas ? 1 : 12   // mouse wheels report lines
+        let dx = Float(event.scrollingDeltaX) * unit, dy = Float(event.scrollingDeltaY) * unit
+        if event.modifierFlags.contains(.option) {
+            renderer.camera.zoom(by: dy * 0.008)
+        } else if abs(dx) > abs(dy) {
+            renderer.camera.orbit(dx: dx, dy: 0)
+        } else {
+            renderer.readingMode = false
+            renderer.camera.liftTarget += dy * 0.03
+        }
+    }
+
+    override func magnify(with event: NSEvent) {
+        renderer?.camera.zoom(by: Float(event.magnification))
     }
 
     // MARK: keys
@@ -144,6 +160,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
             if input.completions.isEmpty { controller?.moveFocus(-1) } else { input.cycleCompletion(-1) }
         case #selector(moveDown(_:)):
             if input.completions.isEmpty { controller?.moveFocus(1) } else { input.cycleCompletion(1) }
+        case #selector(scrollPageUp(_:)), #selector(pageUp(_:)):
+            renderer?.camera.liftTarget += 8
+        case #selector(scrollPageDown(_:)), #selector(pageDown(_:)):
+            renderer?.camera.liftTarget -= 8
         case #selector(cancelOperation(_:)):
             if !input.completions.isEmpty {
                 input.updateCompletions(labels: [])

@@ -129,6 +129,24 @@ final class ChatController {
         self.focus = next >= ids.count ? nil : ids[max(0, next)]
     }
 
+    private var loadingOlder = false
+    private var historyExhausted: Set<String> = []
+
+    /// Fetches the page before the oldest loaded message, once at a time, until there's none.
+    func loadOlder() {
+        guard demo == nil, !loadingOlder, let session, let roomID, !historyExhausted.contains(roomID) else { return }
+        loadingOlder = true
+        Task {
+            defer { loadingOlder = false }
+            do {
+                if try await !session.loadOlder(roomID) { historyExhausted.insert(roomID) }
+            } catch {
+                historyExhausted.insert(roomID)
+                note(.error, "couldn't load older messages: \(error)")
+            }
+        }
+    }
+
     // MARK: private
 
     private func send(_ text: String, labels: [String: String], sign: Bool) async throws {

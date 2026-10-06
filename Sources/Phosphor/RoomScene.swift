@@ -37,6 +37,8 @@ final class RoomScene {
         var version = -1
         var columns = 0
         var lines: [String] = []
+        /// Verifying Ed25519 every frame for every message adds up; once per version is enough.
+        var signature: (version: Int, status: Message.SignatureStatus)?
         /// Eased bottom height, so older messages glide up as new ones arrive.
         var y: Float?
         var s: Float?
@@ -51,8 +53,11 @@ final class RoomScene {
     // Layout, in world units.
     let wallWidth: Float = 16
     private let baseY: Float = 2.1          // bottom of the newest message
-    private let skyStart: Float = 9.5       // messages start fading here…
-    private let skyEnd: Float = 13.5        // …and are gone by here
+    // Messages fade into the sky this far above where you're looking.
+    private let skyFadeStart: Float = 4.6
+    private let skyFadeEnd: Float = 8.3
+    private var skyStart: Float = 11.8
+    private var skyEnd: Float = 15.5
     private let gap: Float = 0.28
     private let textHeight: Float = 0.34
     private let labelHeight: Float = 0.24
@@ -79,6 +84,17 @@ final class RoomScene {
     private(set) var panelFrames: [Int: PanelFrame] = [:]
     private(set) var newestVisible: Int?
 
+    // For scrollback: where each message's bottom is headed, the top of the whole stack,
+    // and the message nearest the view (the renderer keeps it still while new ones arrive).
+    private(set) var targetBottoms: [Int: Float] = [:]
+    private(set) var stackTop: Float = 0
+    private(set) var referenceMessage: Int?
+    /// Set by the renderer while the view is scrolled up; messages arriving then are counted.
+    var isLifted = false {
+        didSet { if !isLifted { unseen = 0 } }
+    }
+    private(set) var unseen = 0
+
     init(atlas: GlyphAtlas) {
         self.atlas = atlas
     }
@@ -96,6 +112,7 @@ final class RoomScene {
         switch event.payload {
         case .messageCreated(let m):
             panels[m.id] = PanelVisual(arrivedAt: now)
+            if isLifted { unseen += 1 }
             for target in m.mentions ?? [] where target != m.author.identity {
                 beams.append(Beam(from: m.author.identity, to: target, at: now + beamTime))
             }
@@ -119,8 +136,10 @@ final class RoomScene {
     // MARK: build
 
     func build(into g: inout FrameGeometry, state: RoomState?, theme: Theme, me: String, origin: String,
-               focus: Int?, eye: SIMD3<Float>, cameraRight: SIMD3<Float>, cameraUp: SIMD3<Float>) {
+               focus: Int?, eye: SIMD3<Float>, cameraRight: SIMD3<Float>, cameraUp: SIMD3<Float>, viewY: Float) {
         let now = AppClock.now
+        skyStart = viewY + skyFadeStart
+        skyEnd = viewY + skyFadeEnd
         let dt = min(max(now - lastBuild, 0), 0.1)
         lastBuild = now
         curl += (targetCurl - curl) * min(1, dt * 3)
@@ -145,7 +164,7 @@ final class RoomScene {
         }
         people = people.filter { fp, p in state.occupants[fp] != nil || (p.leftAt.map { now - $0 < 2.5 } ?? false) }
 
-        let newestFirst = Array(state.orderedMessages.suffix(60).reversed())
+        let newestFirst = Array(state.orderedMessages.reversed())
         let lanes = layoutLanes(newestFirst: newestFirst, me: me)
 
         // People: speakers on their lanes at the base, everyone else in the gallery.
@@ -179,7 +198,7 @@ final class RoomScene {
 
         buildMessages(into: &g, newestFirst: newestFirst, lanes: lanes, surface: surface, positions: positions,
                       state: state, labels: labels, theme: theme, me: me, origin: origin, focus: focus, eye: eye,
-                      now: now, ease: ease)
+                      viewY: viewY, now: now, ease: ease)
 
         // Mention beams arc between people once the message has landed.
         for beam in beams where now >= beam.at {
@@ -253,18 +272,31 @@ final class RoomScene {
 
     private func buildMessages(into g: inout FrameGeometry, newestFirst: [Message], lanes: Lanes, surface: Surface,
                                positions: [String: SIMD3<Float>], state: RoomState, labels: [String: String], theme: Theme,
-                               me: String, origin: String, focus: Int?, eye: SIMD3<Float>, now: Float, ease: Float) {
+                               me: String, origin: String, focus: Int?, eye: SIMD3<Float>, viewY: Float, now: Float, ease: Float) {
         var frames: [Int: PanelFrame] = [:]
+        var targets: [Int: Float] = [:]
         newestVisible = newestFirst.first?.id
         let half = wallWidth / 2
         let maxWidth = wallWidth * maxWidthFraction
 
+        // Stack every loaded message (heights are cached), but only draw the ones in view.
         var cursor = baseY
+        var nearest: (id: Int, distance: Float)?
         for message in newestFirst {
-            guard cursor < skyEnd else { break }
             let textLines = lines(for: message, labels: labels, maxWidth: maxWidth - pad * 2)
-            let label = labelLine(message, labels: labels, origin: origin)
             let height = panelHeight(lines: textLines.count, reactions: hasReactions(message))
+            let bottom = cursor
+            cursor += height + gap
+            targets[message.id] = bottom
+            if nearest == nil || abs(bottom - viewY) < nearest!.distance { nearest = (message.id, abs(bottom - viewY)) }
+
+            var visual = panels[message.id] ?? PanelVisual()
+            guard bottom + height > viewY - 12, bottom < skyEnd + 1 else {
+                visual.y = nil        // off screen: snap into place when it comes back into view
+                panels[message.id] = visual
+                continue
+            }
+            let label = labelLine(message, labels: labels, origin: origin)
             let width = min(maxWidth, max(textLines.map { textWidth($0, height: textHeight) }.max() ?? 0,
                                           textWidth(label, height: labelHeight)) + pad * 2)
 
@@ -274,11 +306,9 @@ final class RoomScene {
             case .left: -half + width / 2
             case .right: half - width / 2
             }
-            var visual = panels[message.id] ?? PanelVisual()
-            visual.y = visual.y.map { $0 + (cursor - $0) * ease } ?? cursor
+            visual.y = visual.y.map { $0 + (bottom - $0) * ease } ?? bottom
             visual.s = visual.s.map { $0 + (anchor - $0) * ease } ?? anchor
             panels[message.id] = visual
-            cursor += height + gap
 
             let y0 = visual.y!, s = visual.s!
             let sky = 1 - smoothstep(skyStart, skyEnd, y0 + height * 0.5)
@@ -291,6 +321,9 @@ final class RoomScene {
                        retention: state.room.retentionSeconds)
         }
         panelFrames = frames
+        targetBottoms = targets
+        stackTop = cursor
+        referenceMessage = nearest?.id
     }
 
     private func buildPanel(into g: inout FrameGeometry, message: Message, lines textLines: [String], label: String,
@@ -343,7 +376,7 @@ final class RoomScene {
         let textS = s0 + pad
         var baseline = y1 - pad - labelHeight * 0.8
         g.surfaceText(label, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: labelHeight,
-                      color: message.signatureStatus(server: origin) == .invalid ? theme.accent : authorColor,
+                      color: signatureStatus(message, origin: origin) == .invalid ? theme.accent : authorColor,
                       intensity: 0.9 * bright, eye: eye)
         baseline -= labelHeight * 0.4 + textHeight * 1.05
 
@@ -474,9 +507,16 @@ final class RoomScene {
         theme.monochrome ? theme.primary : hsv(hue, 0.65, 1)
     }
 
+    private func signatureStatus(_ m: Message, origin: String) -> Message.SignatureStatus {
+        if let cached = panels[m.id]?.signature, cached.version == m.version { return cached.status }
+        let status = m.signatureStatus(server: origin)
+        panels[m.id, default: PanelVisual()].signature = (m.version, status)
+        return status
+    }
+
     private func labelLine(_ m: Message, labels: [String: String], origin: String) -> String {
         var line = SafeText.clean(labels[m.author.identity] ?? m.author.name)
-        switch m.signatureStatus(server: origin) {
+        switch signatureStatus(m, origin: origin) {
         case .valid: line += " ✓signed"
         case .invalid: line += " ✗ BAD SIGNATURE"
         case .unsigned: break

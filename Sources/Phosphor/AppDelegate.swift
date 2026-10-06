@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
     @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
+    @objc func jumpToLatest(_ sender: Any?) { renderer.jumpToLatest() }
     @objc func toggleCRT(_ sender: Any?) { renderer.crtEnabled.toggle() }
     /// Preview of how background rooms will look until multi-room lands.
     @objc func toggleCurl(_ sender: Any?) { renderer.scene.targetCurl = renderer.scene.targetCurl > 0.5 ? 0 : 1 }
@@ -78,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         submenu("Edit", [item("Paste", #selector(PhosphorView.paste(_:)), "v")])
         submenu("View", [
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),
+            item("Jump to Latest", #selector(jumpToLatest(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), target: self),
             item("Next Theme", #selector(nextTheme(_:)), "t", target: self),
             item("CRT Effects", #selector(toggleCRT(_:)), "e", target: self),
             item("Roll Up Room (preview)", #selector(toggleCurl(_:)), "u", target: self),

@@ -18,7 +18,12 @@ struct PostUniforms {
 final class Renderer: NSObject, MTKViewDelegate {
     var camera = Camera()
     var crtEnabled = true
-    var readingMode = false
+    var readingMode = false {
+        didSet { readingToggledAt = AppClock.now }
+    }
+    private var readingToggledAt: Float = -100
+    /// The message the view is pinned to while scrolled up, and where it was last frame.
+    private var anchor: (id: Int, y: Float)?
 
     private let device: MTLDevice
     private let queue: MTLCommandQueue
@@ -100,6 +105,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             readingMode = snapshot.readingMode
             themeIndex = snapshot.theme % Theme.all.count
             scene.targetCurl = snapshot.curl
+            camera.liftTarget = snapshot.lift
         }
     }
 
@@ -159,7 +165,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         // Camera: orbit, or face the selected (else newest) message head-on in reading mode.
         let aspect = Float(size.width / size.height)
         let fovy: Float = 0.9
-        var desiredEye = camera.eye, desiredTarget = camera.target
+        // Scrollback: lift eases at the same rate panels glide, so both move together.
+        camera.liftTarget = simd_clamp(camera.liftTarget, 0, maxLift)
+        camera.lift += (camera.liftTarget - camera.lift) * min(1, dt * 8)
+        scene.isLifted = camera.liftTarget > 1
+        var desiredEye = camera.eye, desiredTarget = camera.center
         if readingMode, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
             // Back off until the whole panel fits on screen, with a margin.
             let fitWidth = panel.width / 2 * 1.2 / (tan(fovy / 2) * aspect)
@@ -168,7 +178,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             desiredTarget = panel.center
         }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
-        let ease = SIMD3(repeating: min(1, dt * 4))
+        // Ease slowly in and out of reading mode; otherwise follow the camera closely.
+        let ease = SIMD3(repeating: min(1, dt * (readingMode || time - readingToggledAt < 1.2 ? 4 : 14)))
         eye = simd_mix(eye, desiredEye, ease)
         lookTarget = simd_mix(lookTarget, desiredTarget, ease)
 
@@ -183,14 +194,19 @@ final class Renderer: NSObject, MTKViewDelegate {
         var geometry = FrameGeometry()
         geometry.pixelScale = pixelScale
         scene.build(into: &geometry, state: controller.state, theme: theme, me: controller.me, origin: controller.origin,
-                    focus: controller.focus, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp)
+                    focus: controller.focus, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
+                    viewY: lookTarget.y)
+        keepScrollbackSteady()
 
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()
         hudGeometry.pixelScale = pixelScale
         let viewport = SIMD2(Float(size.width), Float(size.height))
         if let input = phosphorView?.input {
-            hud.build(into: &hudGeometry, viewport: viewport, scale: pixelScale, controller: controller, input: input, theme: theme)
+            let hint: String? = !scene.isLifted ? nil
+                : scene.unseen > 0 ? "↓ \(scene.unseen) new  ·  ⌘↓ latest" : "scrolled up  ·  ⌘↓ latest"
+            hud.build(into: &hudGeometry, viewport: viewport, scale: pixelScale, controller: controller, input: input,
+                      theme: theme, hint: hint)
         }
         var hudUniforms = FrameUniforms(
             viewProj: simd_float4x4(columns: (SIMD4(2 / viewport.x, 0, 0, 0), SIMD4(0, 2 / viewport.y, 0, 0),
@@ -272,6 +288,24 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         cb.present(drawable)
         cb.commit()
+    }
+
+    /// The highest the view may fly: the top of everything loaded.
+    private var maxLift: Float { max(0, scene.stackTop - camera.target.y - 2) }
+
+    /// While scrolled up, new messages push the stack up from below; lift the view by the
+    /// same amount so the message being read stays put. Near the top, fetch older history.
+    private func keepScrollbackSteady() {
+        if scene.isLifted, let anchor, let now = scene.targetBottoms[anchor.id] {
+            camera.liftTarget += now - anchor.y
+        }
+        anchor = scene.referenceMessage.flatMap { id in scene.targetBottoms[id].map { (id, $0) } }
+        if camera.liftTarget > maxLift - 6 { controller.loadOlder() }
+    }
+
+    func jumpToLatest() {
+        camera.liftTarget = 0
+        readingMode = false
     }
 
     private func draw(_ geometry: FrameGeometry, uniforms: inout FrameUniforms, with enc: MTLRenderCommandEncoder) {

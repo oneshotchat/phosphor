@@ -13,6 +13,8 @@ public final class ChatSession {
         case event(room: String, Event)
         /// The room's state was replaced wholesale (history truncated, or rejoined).
         case reloaded(room: String)
+        /// Older messages were merged in for scrollback.
+        case historyLoaded(room: String, hasMore: Bool)
         /// We're no longer in the room (kicked or banned, or a rejoin failed).
         case left(room: String, reason: String)
         /// Someone mentioned us, in any room.
@@ -84,7 +86,7 @@ public final class ChatSession {
         guard let oldest = rooms[room]?.messages.keys.min() else { return false }
         let page = try await client.messages(room: room, before: oldest)
         rooms[room]?.load(page.messages)
-        emit(.reloaded(room: room))
+        emit(.historyLoaded(room: room, hasMore: page.hasMore))
         return page.hasMore
     }
 

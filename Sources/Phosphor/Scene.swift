@@ -37,6 +37,10 @@ struct Camera {
     var pitch: Float = 0.1
     var distance: Float = 19
     var target = SIMD3<Float>(0, 7.2, 0)
+    /// How far the view has flown up the wall into older messages. Scrolling sets
+    /// `liftTarget`; `lift` eases toward it each frame.
+    var lift: Float = 0
+    var liftTarget: Float = 0
 
     mutating func orbit(dx: Float, dy: Float) {
         yaw -= dx * 0.005
@@ -47,8 +51,10 @@ struct Camera {
         distance = simd_clamp(distance * (1 - amount), 4, 60)
     }
 
+    var center: SIMD3<Float> { target + SIMD3(0, lift, 0) }
+
     var eye: SIMD3<Float> {
-        target + SIMD3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * distance
+        center + SIMD3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * distance
     }
 }
 
