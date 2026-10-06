@@ -89,9 +89,14 @@ final class ChatController {
 
     // MARK: start
 
-    /// Logs in, rejoins last session's rooms, and joins `room` too if one was asked for
-    /// (or #lobby when there's nothing to rejoin).
+    /// Logs in, rejoins last session's rooms, and joins `room` too if one was asked for.
+    /// With nothing to rejoin and no room asked for, nothing is joined: the overview opens
+    /// so you can pick (being in a listed room is public, so that's your call).
     func start(room: String?, server: URL = OSCClient.defaultServer) {
+        if room == nil, savedRooms.isEmpty {
+            browser.open()
+            note(.info, "pick a room to join, or type a name · esc to close")
+        }
         Task {
             do {
                 let (identity, file) = try IdentityFile.loadOrCreate(at: IdentityFile.defaultURL)
@@ -99,16 +104,31 @@ final class ChatController {
                 let session = ChatSession(client: client)
                 session.onUpdate = { [weak self] in self?.handle($0) }
                 self.session = session
+                displayName = file.name ?? "anon"
                 note(.info, "connecting as \(identity.fingerprint.prefix(8))…")
-                try await session.start()
-                displayName = await client.displayName ?? "anon"
+                // Keep trying if the server can't be reached (offline at launch, say).
+                var wait: Double = 2
+                while true {
+                    do {
+                        try await session.start()
+                        break
+                    } catch let error as OSCError {
+                        throw error                     // the server answered and said no
+                    } catch {
+                        note(.error, "can't reach \(server.host ?? "the server") (\(Self.brief(error))); retrying in \(Int(wait))s")
+                        try await Task.sleep(for: .seconds(wait))
+                        wait = min(wait * 2, 30)
+                    }
+                }
+                displayName = await client.displayName ?? displayName
 
                 let saved = savedRooms
                 let lastActive = UserDefaults.standard.string(forKey: "activeRoom")
                 for room in saved {
                     await join(room.name, activate: room.id == lastActive || activeRoom == nil, pinnedTo: room.id)
                 }
-                if let room { await join(room) } else if rooms.isEmpty { await join("lobby") }
+                if let room { await join(room) }
+                if browser.isOpen { await refreshListing(maxAge: 0, pages: 3) }
 
                 // Keep the room listing fresh. It's public and cacheable for 10 s; once a
                 // minute is plenty outside the browser.
@@ -120,6 +140,12 @@ final class ChatController {
                 note(.error, "login failed: \(error)")
             }
         }
+    }
+
+    /// A short reason for a network error, not the whole NSError dump.
+    private static func brief(_ error: Error) -> String {
+        if let url = error as? URLError { return url.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased() }
+        return String(String(describing: error).prefix(60))
     }
 
     func startDemo(speakers: Int) {

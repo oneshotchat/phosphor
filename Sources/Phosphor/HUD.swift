@@ -30,7 +30,7 @@ struct HUD {
         case .disconnected: "reconnecting…"
         case .unavailable: "polling"
         }
-        text("\(room)  ·  \(here)  ·  \(link)", mx, y, 15, theme.primary, 1.1)
+        text([room, here, link].filter { !$0.isEmpty }.joined(separator: "  ·  "), mx, y, 15, theme.primary, 1.1)
         y -= 20 * scale
         let myLabel = state?.labels[controller.me] ?? controller.displayName
         if let topic = state?.room.topic, !topic.isEmpty {
