@@ -107,6 +107,20 @@ final class DemoFeed {
 
     // MARK: script
 
+    /// Someone mentions you now (the tour's cue for a floor ripple).
+    func mentionYou() {
+        guard let author = speakerPool.randomElement() else { return }
+        let text = script.mentions.randomElement()!.replacingOccurrences(of: "{me}", with: "<@\(me)>")
+        post(from: author.fp, text: text, mentions: [me])
+    }
+
+    /// Someone reacts to your latest message now.
+    func reactToYours(_ reaction: String = "🔥") {
+        let mine = messages.filter { ($0.value["author"] as? [String: Any])?["identity"] as? String == me }.keys.max()
+        guard let mine, let who = speakerPool.randomElement() else { return }
+        react(mine, reaction, by: who.fp)
+    }
+
     /// Someone usually reacts to what you post, and sometimes answers.
     private func respondToYou() {
         guard let mine = messages.keys.max() else { return }

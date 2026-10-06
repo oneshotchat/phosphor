@@ -111,6 +111,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var pendingSnapshotLift: Float?
 
     private var theme: Theme { Theme.all[themeIndex] }
+    var themeName: String { theme.name }
 
     init(view: PhosphorView, controller: ChatController) throws {
         guard let device = view.device, let queue = device.makeCommandQueue() else {

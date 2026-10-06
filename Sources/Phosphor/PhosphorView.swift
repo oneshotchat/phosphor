@@ -145,6 +145,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
         refreshCompletions()
     }
 
+    /// Dev: presses Return (send, or the browser's join) or Tab (take the completion).
+    func devPressReturn() { doCommand(by: #selector(insertNewline(_:))) }
+    func devPressTab() { doCommand(by: #selector(insertTab(_:))) }
+
     /// ⌘L. The input line switches between chatting and filtering rooms.
     func toggleBrowser() {
         guard let browser = controller?.browser else { return }

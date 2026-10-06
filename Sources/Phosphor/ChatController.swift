@@ -305,6 +305,15 @@ final class ChatController {
     }
 
     /// ⌘1…⌘9 (zero-based here).
+    /// Demo: the room at `index` mentions you / someone reacts to your latest there.
+    func demoMention(roomIndex: Int) {
+        if rooms.indices.contains(roomIndex) { demos[rooms[roomIndex]]?.mentionYou() }
+    }
+
+    func demoReactToMine(_ reaction: String = "🔥") {
+        if let activeRoom { demos[activeRoom]?.reactToYours(reaction) }
+    }
+
     func activate(index: Int) {
         if rooms.indices.contains(index) { activate(rooms[index]) }
     }

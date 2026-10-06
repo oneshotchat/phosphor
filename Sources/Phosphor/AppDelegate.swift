@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var renderer: Renderer!
     private let controller = ChatController()
     private var snapshotActivity: NSObjectProtocol?
+    private var tour: DemoTour?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -66,10 +67,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.launchIdentity = URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath)
             args.removeSubrange(i...(i + 1))
         }
-        if args.contains("--demo") || env["PHOSPHOR_DEMO"] != nil {
+        let touring = args.contains("--tour")
+        if args.contains("--demo") || touring || env["PHOSPHOR_DEMO"] != nil {
             controller.startDemo(speakers: env["PHOSPHOR_DEMO_SPEAKERS"].flatMap(Int.init) ?? 3,
                                  name: env["PHOSPHOR_DEMO_NAME"] ?? "you")
             if let index = env["PHOSPHOR_ACTIVE"].flatMap(Int.init) { controller.activate(index: index) }
+            if touring {
+                // --tour: the demo plays its own running order, for recording a video.
+                tour = DemoTour(controller: controller, renderer: renderer, view: view)
+                tour?.start(after: env["PHOSPHOR_TOUR_LEAD"].flatMap(Double.init) ?? 6)
+            }
         } else {
             let room = args.first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"]
             let server = env["PHOSPHOR_SERVER"].flatMap(URL.init(string:))

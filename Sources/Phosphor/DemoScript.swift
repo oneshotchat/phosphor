@@ -89,6 +89,12 @@ struct DemoScript {
         "I renamed my cat to ed25519",
         "brb, making toast",
         "back. the toast was great",
+        "my plant has more uptime than my last job",
+        "hot take: the best keyboard is the one you already own",
+        "someone recommend a sci-fi book, I've run out",
+        "the cat just walked across the keyboard and sent nothing. respect",
+        "weekend plans: absolutely none, it's going to be great",
+        "today's soundtrack: synthwave, obviously",
     ], mentions: [
         "{me} tea or coffee?",
     ])
