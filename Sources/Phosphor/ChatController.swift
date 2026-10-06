@@ -327,25 +327,29 @@ final class ChatController {
 
     /// Joins a room picked in the browser, pinned to the fingerprint we saw listed so a
     /// name that changed hands in the meantime isn't joined by mistake.
-    func join(listed room: Room, key: String? = nil, invite: String? = nil) {
-        if demoMe != nil { return joinDemo(room, key: key, invite: invite) }
-        Task { await join(room.name, key: key, invite: invite, pinnedTo: room.id) }
+    enum JoinOutcome {
+        case joined, needsKey, needsInvite, failed
     }
 
-    /// Joins (or creates) a room by name, e.g. an unlisted one.
-    func join(named name: String) {
+    /// A join started in the browser: the outcome tells it whether to close or ask for a
+    /// key or invite code (which it does itself, so those aren't reported as errors).
+    func joinFromBrowser(_ target: RoomBrowser.Target, key: String?, invite: String?) async -> JoinOutcome {
         if demoMe != nil {
-            note(.info, "the demo only has its listed rooms")
-            return
+            guard let room = listed.first(where: { $0.name == target.name }) else {
+                note(.info, "the demo only has its listed rooms")
+                return .failed
+            }
+            if room.access == "key", (key ?? "").isEmpty { return .needsKey }
+            if room.access == "invite", (invite ?? "").isEmpty { return .needsInvite }
+            joinDemo(room)
+            return .joined
         }
-        Task { await join(name) }
+        return await join(target.name, key: key, invite: invite, pinnedTo: target.id, askForKey: true)
     }
 
     /// In the demo, a listed room becomes another scripted feed (any key or code works).
-    private func joinDemo(_ room: Room, key: String?, invite: String?) {
+    private func joinDemo(_ room: Room) {
         guard let me = demoMe else { return }
-        if room.access == "key", (key ?? "").isEmpty { return note(.error, "#\(room.name) needs a room key") }
-        if room.access == "invite", (invite ?? "").isEmpty { return note(.error, "#\(room.name) is invite-only") }
         let feed = DemoFeed(name: room.name, topic: room.topic ?? "", me: me, speakers: 2, pace: 3000...8000)
         feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
         feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
@@ -567,11 +571,14 @@ final class ChatController {
     /// Joins (or, if already joined, just activates). `pinnedTo` is a remembered
     /// fingerprint from a previous launch: if the name now belongs to a different room,
     /// we say so and don't join the stranger's room.
-    private func join(_ name: String, key: String? = nil, invite: String? = nil, activate: Bool = true, pinnedTo: String? = nil) async {
-        guard let session, !name.isEmpty else { return }
+    /// `askForKey`: the caller will ask for a missing or wrong key / invite code itself.
+    @discardableResult
+    private func join(_ name: String, key: String? = nil, invite: String? = nil, activate: Bool = true, pinnedTo: String? = nil,
+                      askForKey: Bool = false) async -> JoinOutcome {
+        guard let session, !name.isEmpty else { return .failed }
         if let existing = rooms.first(where: { state($0)?.room.name == name }) {
             if activate { self.activate(existing) }
-            return
+            return .joined
         }
         do {
             let state: RoomState
@@ -581,7 +588,7 @@ final class ChatController {
                 if pinnedTo != nil {
                     note(.error, "#\(name) now belongs to a different room (yours expired). /join \(name) to join the new one.")
                     savedRooms.removeAll { $0.name == name }
-                    return
+                    return .failed
                 }
                 note(.error, "#\(name) is a different room than the one you were in before (the old one expired). Joined the new one.")
                 state = try await session.join(name, key: key, invite: invite)
@@ -591,15 +598,21 @@ final class ChatController {
             if activate || activeRoom == nil { self.activate(state.id) }
             persist()
             note(.info, "joined #\(state.room.name)")
+            return .joined
         } catch let error as OSCError where error.code == "key_required" {
-            note(.error, key == nil ? "#\(name) needs a room key: /join \(name) <key>"
-                                    : "wrong key for #\(name) (too many wrong tries locks the room's key joins for a while)")
+            if key != nil { note(.error, "wrong key for #\(name) (too many wrong tries locks the room's key joins for a while)") }
+            else if !askForKey { note(.error, "#\(name) needs a room key: /join \(name) <key>") }
+            return .needsKey
         } catch let error as OSCError where error.code == "invite_required" {
-            note(.error, invite == nil ? "#\(name) is invite-only" : "that invite code didn't work for #\(name)")
+            if invite != nil { note(.error, "that invite code didn't work for #\(name)") }
+            else if !askForKey { note(.error, "#\(name) is invite-only: /join \(name) invite <code>") }
+            return .needsInvite
         } catch let error as OSCError {
             note(.error, "join #\(name): \(error.code)")
+            return .failed
         } catch {
             note(.error, "join #\(name): \(error)")
+            return .failed
         }
     }
 

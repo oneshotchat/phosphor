@@ -13,9 +13,16 @@ final class RoomBrowser {
         var id: String? { if case .listed(let room) = self { room.id } else { nil } }
     }
 
-    enum Prompt {
-        case key(Room)
-        case invite(Room)
+    /// A room to join: its name, and the fingerprint it was listed with (pinned, so a name
+    /// that changed hands isn't joined by mistake).
+    struct Target: Equatable {
+        var name: String
+        var id: String?
+    }
+
+    enum Prompt: Equatable {
+        case key(Target, wrong: Bool)
+        case invite(Target, wrong: Bool)
     }
 
     private(set) var isOpen = false
@@ -78,41 +85,61 @@ final class RoomBrowser {
         return entries.indices.contains(selection) ? entries[selection] : nil
     }
 
-    /// Enter. Joins the selection, or asks for its key or invite first; in a prompt, the
-    /// text is that key or code.
+    /// A join in flight; the browser stays open until it's done.
+    private(set) var joining: String?
+
+    /// Enter. Joins the selection, asking for a key or invite code first when the listing
+    /// says one is needed, or when the server says so (unlisted rooms, a listing that's out
+    /// of date, a wrong key). In a prompt, the text is that key or code.
     func submit(_ text: String) {
+        guard joining == nil else { return }
         if let prompt {
             let answer = text.trimmingCharacters(in: .whitespaces)
             guard !answer.isEmpty else { return }
             switch prompt {
-            case .key(let room): controller.join(listed: room, key: answer)
-            case .invite(let room): controller.join(listed: room, invite: answer)
+            case .key(let target, _): attempt(target, key: answer)
+            case .invite(let target, _): attempt(target, invite: answer)
             }
-            close()
             return
         }
         switch selected {
         case .listed(let room) where room.access == "key":
-            prompt = .key(room)
+            prompt = .key(Target(name: room.name, id: room.id), wrong: false)
         case .listed(let room) where room.access == "invite":
-            prompt = .invite(room)
+            prompt = .invite(Target(name: room.name, id: room.id), wrong: false)
         case .listed(let room):
-            controller.join(listed: room)
-            close()
+            attempt(Target(name: room.name, id: room.id))
         case .byName(let name):
-            controller.join(named: name)
-            close()
+            attempt(Target(name: name, id: nil))
         case nil:
             break
         }
     }
 
+    private func attempt(_ target: Target, key: String? = nil, invite: String? = nil) {
+        joining = target.name
+        Task {
+            let outcome = await controller.joinFromBrowser(target, key: key, invite: invite)
+            joining = nil
+            switch outcome {
+            case .joined: close()
+            case .needsKey: prompt = .key(target, wrong: key != nil)
+            case .needsInvite: prompt = .invite(target, wrong: invite != nil)
+            case .failed: prompt = nil                    // the error is in the notices; pick again
+            }
+        }
+    }
+
     /// What the input line says before the text.
     var inputPrompt: String {
+        if let joining { return "joining #\(SafeText.clean(joining))… " }
         switch prompt {
-        case .key(let room): "key for #\(SafeText.clean(room.name)) › "
-        case .invite(let room): "invite code for #\(SafeText.clean(room.name)) › "
-        case nil: "find a room › "
+        case .key(let target, let wrong):
+            return (wrong ? "wrong key · " : "") + "key for #\(SafeText.clean(target.name)) › "
+        case .invite(let target, let wrong):
+            return (wrong ? "that code didn't work · " : "") + "invite code for #\(SafeText.clean(target.name)) › "
+        case nil:
+            return "find a room › "
         }
     }
 
