@@ -18,5 +18,5 @@ let package = Package(
         // Run with `make test`: with only the Command Line Tools, Swift Testing needs extra search paths.
         .testTarget(name: "OSCCoreTests", dependencies: ["OSCCore"]),
     ],
-    swiftLanguageVersions: [.v5]
+    swiftLanguageModes: [.v5]
 )
