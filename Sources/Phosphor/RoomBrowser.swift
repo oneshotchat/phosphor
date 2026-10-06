@@ -44,14 +44,32 @@ final class RoomBrowser {
         Task { await controller.refreshListing(pages: 3) }
     }
 
+    /// Prompts waiting their turn (several keyed rooms at launch, say).
+    private var pending: [Prompt] = []
+
+    /// Opens the browser at a key or invite prompt for a room the app couldn't join on its
+    /// own, or queues it behind the one already showing.
+    func ask(_ request: Prompt) {
+        if isOpen, prompt != nil || joining != nil {
+            if request != prompt, !pending.contains(request) { pending.append(request) }
+            return
+        }
+        if !isOpen { open() }
+        prompt = request
+    }
+
     func close() {
+        if !pending.isEmpty {
+            prompt = pending.removeFirst()     // the next room still waiting for its key
+            return
+        }
         isOpen = false
         prompt = nil
     }
 
-    /// Esc: back out of a prompt first, then close.
+    /// Esc: skip this prompt (on to the next waiting one, else back to the list), then close.
     func cancel() {
-        if prompt != nil { prompt = nil } else { close() }
+        if prompt != nil { prompt = pending.isEmpty ? nil : pending.removeFirst() } else { close() }
     }
 
     func setQuery(_ text: String) {

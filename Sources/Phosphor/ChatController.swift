@@ -139,7 +139,20 @@ final class ChatController {
                 let saved = savedRooms
                 let lastActive = UserDefaults.standard.string(forKey: "activeRoom")
                 for room in saved {
-                    await join(room.name, activate: room.id == lastActive || activeRoom == nil, pinnedTo: room.id)
+                    // Keyed rooms rejoin with the key from the keychain; if there's none, or it
+                    // no longer works, the overview asks for it instead of failing.
+                    let key = RoomKeychain.key(for: room.id)
+                    let target = RoomBrowser.Target(name: room.name, id: room.id)
+                    switch await join(room.name, key: key, activate: room.id == lastActive || activeRoom == nil,
+                                      pinnedTo: room.id, askForKey: true) {
+                    case .needsKey:
+                        if key != nil { RoomKeychain.remove(for: room.id) }
+                        browser.ask(.key(target, wrong: key != nil))
+                    case .needsInvite:
+                        browser.ask(.invite(target, wrong: false))
+                    case .joined, .failed:
+                        break
+                    }
                 }
                 if let room { await join(room) }
                 if browser.isOpen { await refreshListing(maxAge: 0, pages: 3) }
@@ -480,6 +493,8 @@ final class ChatController {
     private func updateActiveRoom(_ update: RoomUpdate, done: String) async throws {
         guard let activeRoom, let session else { return note(.error, "not in a room") }
         try await session.updateRoom(activeRoom, update)
+        if let key = update.key { RoomKeychain.save(key, for: activeRoom) }
+        if update.access == "open" { RoomKeychain.remove(for: activeRoom) }
         note(.info, done)
     }
 
@@ -594,6 +609,7 @@ final class ChatController {
                 state = try await session.join(name, key: key, invite: invite)
             }
             knownRooms[name] = state.id
+            if let key { RoomKeychain.save(key, for: state.id) }
             if !rooms.contains(state.id) { rooms.append(state.id) }
             if activate || activeRoom == nil { self.activate(state.id) }
             persist()
@@ -640,6 +656,8 @@ final class ChatController {
         case .reloaded(let room):
             onRoomReloaded?(room)
         case .left(let room, let name, let reason, let detail):
+            // A room you left or were banned from won't be rejoined: forget its key.
+            if reason == "left" || reason == "banned" { RoomKeychain.remove(for: room) }
             let detail = detail.map { ": \($0)" } ?? ""
             switch reason {
             case "left": note(.info, "left #\(name)")
