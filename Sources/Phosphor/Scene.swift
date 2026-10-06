@@ -34,9 +34,9 @@ struct Theme {
 
 struct Camera {
     var yaw: Float = 0
-    var pitch: Float = 0.1
-    var distance: Float = 19
-    var target = SIMD3<Float>(0, 7.2, 0)
+    var pitch: Float = 0.12
+    var distance: Float = 23
+    var target = SIMD3<Float>(0, 6.6, 0)
     /// How far the view has flown up the wall into older messages. Scrolling sets
     /// `liftTarget`; `lift` eases toward it each frame.
     var lift: Float = 0

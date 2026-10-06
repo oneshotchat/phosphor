@@ -36,6 +36,11 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var ringAngle: Float = 0
     private var layoutChangedAt: Float = -100
     private var roomsMovedAt: Float = -100
+    /// The room that was active before the last switch.
+    private var switchedFrom: String?
+    /// In the row, the old room steps back into its slot before the new one comes forward,
+    /// so walls never pass through each other.
+    private let rowStepBack: Float = 0.6
     var layout: RoomLayout = RoomLayout(rawValue: UserDefaults.standard.string(forKey: "roomLayout") ?? "") ?? .ring {
         didSet {
             UserDefaults.standard.set(layout.rawValue, forKey: "roomLayout")
@@ -332,6 +337,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     /// Switching rooms starts the new one at its latest messages.
     func activeChanged(from old: String?, to new: String?) {
+        switchedFrom = old
         camera.liftTarget = 0
         anchor = nil
         readingMode = false
@@ -359,9 +365,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         // Ring targets move smoothly as the ring spins, so follow them closely; a layout
         // switch eases everything across.
         let follow = min(1, dt * (time - layoutChangedAt < 1.5 ? 3 : 10))
+        let steppingBack = layout == .row && switchedFrom != nil && time - roomsMovedAt < rowStepBack
         let cameraFloor = SIMD3<Float>(0, 0, 19)
         for (i, id) in rooms.enumerated() {
-            let active = i == activeIndex
+            // The incoming room waits in its slot until the old one has stepped back.
+            let active = i == activeIndex && !steppingBack
             let target: SIMD3<Float> = switch layout {
             case .ring:
                 SIMD3(sin(Float(i) * step + ringAngle) * radius, 0, cos(Float(i) * step + ringAngle) * radius - radius)
@@ -371,7 +379,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                 active ? .zero : rowSlot(i, of: count)
             }
             var p = placements[id] ?? RoomScene.Placement(origin: target)
-            p.origin += (target - p.origin) * (layout == .row ? min(1, dt * 3) : follow)
+            p.origin += (target - p.origin) * (layout == .row ? min(1, dt * 4.5) : follow)
             // Row walls face straight ahead, square with the grid; ring cylinders turn their
             // front toward the camera so their busiest side shows.
             let toCamera = cameraFloor - p.origin
@@ -391,7 +399,6 @@ final class Renderer: NSObject, MTKViewDelegate {
             }
             scene.isActive = active
             scene.dim = active ? 1 : 0.5
-            scene.detailed = active || simd_distance(eye, p.origin) < 24
         }
     }
 
@@ -419,6 +426,16 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
         anchor = scene.referenceMessage.flatMap { id in scene.targetBottoms[id].map { (id, $0) } }
         if camera.liftTarget > maxLift - 6 { controller.loadOlder() }
+    }
+
+    /// Back to the default framing: straight on, at the latest messages.
+    func resetView() {
+        let defaults = Camera()
+        camera.yaw = defaults.yaw
+        camera.pitch = defaults.pitch
+        camera.distance = defaults.distance
+        camera.liftTarget = 0
+        readingMode = false
     }
 
     func jumpToLatest() {

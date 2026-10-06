@@ -89,9 +89,8 @@ final class RoomScene {
         var normal = SIMD3<Float>(0, 0, 1)       // the way the wall faces
     }
     var placement = Placement()
-    /// Background rooms glow less, and far away their messages are drawn as bars.
+    /// Background rooms glow less.
     var dim: Float = 1
-    var detailed = true
     var isActive = true
 
     /// Where each visible message sits this frame, for reading mode.
@@ -427,26 +426,6 @@ final class RoomScene {
         let authorColor = people[message.author.identity].map { color(hue: $0.hue, theme: theme) }
             ?? color(hue: hue(of: message.author.identity), theme: theme)
         let textS = s0 + pad
-        guard detailed else {
-            // Far away: each line as a bar, written on like the text would be.
-            var y = y1 - pad - labelHeight * 0.45
-            g.surfaceLine(surface, s0: textS, s1: textS + min(textWidth(label, height: labelHeight), s1 - s0 - pad * 2), y: y,
-                          authorColor, intensity: 0.7 * bright * smoothstep(-0.1, 0.3, facing), width: 2)
-            y -= labelHeight * 0.4 + textHeight * 0.85
-            var remaining = visual.arrivedAt < -50 ? Float.infinity : max(0, age - beamTime - 0.25) * glyphsPerSecond
-            for line in textLines {
-                let shown = min(1, remaining / Float(max(line.count, 1)))
-                if shown > 0 {
-                    let w = textWidth(line, height: textHeight) * shown
-                    let mid = textS + w / 2
-                    let visible = smoothstep(-0.1, 0.3, simd_dot(surface.normal(at: mid), simd_normalize(eye - surface.point(mid, y))))
-                    g.surfaceLine(surface, s0: textS, s1: textS + w, y: y, theme.primary, intensity: bright * visible, width: 2.6)
-                }
-                remaining -= Float(line.count)
-                y -= textHeight * 1.25
-            }
-            return
-        }
         var baseline = y1 - pad - labelHeight * 0.8
         g.surfaceText(label, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: labelHeight,
                       color: signatureStatus(message, origin: origin) == .invalid ? theme.accent : authorColor,

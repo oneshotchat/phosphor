@@ -82,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
     @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
     @objc func jumpToLatest(_ sender: Any?) { renderer.jumpToLatest() }
+    @objc func resetView(_ sender: Any?) { renderer.resetView() }
     @objc func toggleCRT(_ sender: Any?) { renderer.crtEnabled.toggle() }
     @objc func toggleLayout(_ sender: Any?) { renderer.layout = renderer.layout == .ring ? .row : .ring }
     @objc func nextRoom(_ sender: Any?) { controller.cycle(1) }
@@ -107,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         submenu("View", [
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),
             item("Jump to Latest", #selector(jumpToLatest(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), target: self),
+            item("Reset View", #selector(resetView(_:)), "0", target: self),
             item("Next Theme", #selector(nextTheme(_:)), "t", target: self),
             item("CRT Effects", #selector(toggleCRT(_:)), "e", target: self),
             item("Ring / Row Layout", #selector(toggleLayout(_:)), "g", target: self),
