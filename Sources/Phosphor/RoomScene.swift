@@ -171,7 +171,10 @@ final class RoomScene {
         beams.removeAll { now - $0.at > 1.4 }
 
         let n = placement.normal
-        let surface = Surface(origin: placement.origin, right: SIMD3(n.z, 0, -n.x), normal: n, width: wallWidth, curl: curl)
+        // The surface grows as it rolls so the cylinder is as wide across as the flat wall
+        // (8 grid squares): circumference π × wall width when fully rolled.
+        let surface = Surface(origin: placement.origin, right: SIMD3(n.z, 0, -n.x), normal: n,
+                              width: wallWidth * mix(1, .pi, t: curl), curl: curl)
         buildFloor(into: &g, theme: theme, surface: surface)
         guard let state else {
             panelFrames = [:]
@@ -251,7 +254,7 @@ final class RoomScene {
                    right: surface.right, up: -n, height: height,
                    color: activity.mentioned ? theme.accent : theme.primary, intensity: (activity.unread > 0 ? 1.4 : 0.8) * background)
             if activity.unread > 0 {
-                g.surfaceLine(surface, s0: -wallWidth / 2, s1: wallWidth / 2, y: 0.05, theme.primary,
+                g.surfaceLine(surface, s0: -surface.width / 2, s1: surface.width / 2, y: 0.05, theme.primary,
                               intensity: min(Float(activity.unread), 8) * 0.25 * background, width: 2.5)
             }
             if activity.mentioned {
@@ -354,7 +357,7 @@ final class RoomScene {
             }
             // Around the cylinder: a stable spot per message, golden-ratio spaced so
             // neighbours spread evenly.
-            let around = (Float(message.id) * 0.618034).truncatingRemainder(dividingBy: 1) * wallWidth - half
+            let around = ((Float(message.id) * 0.618034).truncatingRemainder(dividingBy: 1) - 0.5) * surface.width
             let anchor = mix(laneAnchor, around, t: curl)
             visual.y = visual.y.map { $0 + (bottom - $0) * ease } ?? bottom
             visual.s = visual.s.map { $0 + (anchor - $0) * ease } ?? anchor
@@ -534,7 +537,7 @@ final class RoomScene {
 
     private func buildFloor(into g: inout FrameGeometry, theme: Theme, surface: Surface) {
         // The wall's footprint and its edges rising into the sky.
-        let half = wallWidth / 2
+        let half = surface.width / 2
         g.surfaceLine(surface, s0: -half, s1: half, y: 0.02, theme.primary, intensity: 0.8, width: 1.4)
         g.surfaceLine(surface, s0: -half, s1: half, y: baseY - 0.25, theme.primary, intensity: 0.25, width: 1)
         for s in [-half, half] {

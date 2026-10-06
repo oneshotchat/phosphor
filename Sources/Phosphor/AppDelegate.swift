@@ -37,12 +37,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.backgroundColor = .black
         window.contentView = view
         window.center()
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(view)
-        NSApp.activate(ignoringOtherApps: true)
+        let env = ProcessInfo.processInfo.environment
+        if env["PHOSPHOR_SNAPSHOT"] != nil || env["PHOSPHOR_FPS"] != nil {
+            // Dev runs open behind everything and never take focus, so they can't steal
+            // keystrokes from a Phosphor (or anything else) the user is using.
+            window.orderBack(nil)
+        } else {
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(view)
+            NSApp.activate(ignoringOtherApps: true)
+        }
 
         // Room: first argument or PHOSPHOR_ROOM, else #lobby.
-        let env = ProcessInfo.processInfo.environment
         let args = CommandLine.arguments.dropFirst()
         if args.contains("--demo") || env["PHOSPHOR_DEMO"] != nil {
             controller.startDemo(speakers: env["PHOSPHOR_DEMO_SPEAKERS"].flatMap(Int.init) ?? 3)

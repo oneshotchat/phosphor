@@ -351,7 +351,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard count > 0 else { return }
         let activeIndex = controller.activeRoom.flatMap { rooms.firstIndex(of: $0) } ?? 0
         let step = 2 * Float.pi / Float(count)
-        let radius = max(15, Float(count) * 11 / (2 * .pi))
+        let radius = max(22, Float(count) * 24 / (2 * .pi))     // room for 16-wide cylinders
         var delta = -Float(activeIndex) * step - ringAngle
         delta = atan2(sin(delta), cos(delta))          // spin the short way round
         ringAngle += delta * min(1, dt * 3)
