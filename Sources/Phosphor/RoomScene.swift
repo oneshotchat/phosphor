@@ -336,15 +336,10 @@ final class RoomScene {
         for message in newestFirst {
             let textLines = lines(for: message, labels: labels, maxWidth: maxWidth - pad * 2)
             let height = panelHeight(lines: textLines.count, reactions: hasReactions(message))
-            // In the background, messages that arrived while you watched drift up a little
-            // with age, so a busy room climbs and a quiet one settles. Only time seen here
-            // counts, and it's capped: history from the server is hours or days old and
-            // would otherwise sit far above the sky. The active room stacks by count.
-            let arrived = panels[message.id]?.arrivedAt ?? -100
-            let age = arrived > -50 ? max(0, now - arrived) : 0
-            let bottom = max(cursor, baseY + min(age * 0.05, 4) * background)
-            // Rolled up, messages spread around the cylinder, so they can stack tighter.
-            cursor = bottom + (height + gap) * mix(1, 0.5, t: curl)
+            // Same height whether the room is active or in the background, so switching
+            // only moves rooms, never their messages.
+            let bottom = cursor
+            cursor = bottom + height + gap
             targets[message.id] = bottom
             if nearest == nil || abs(bottom - viewY) < nearest!.distance { nearest = (message.id, abs(bottom - viewY)) }
 
