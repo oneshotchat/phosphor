@@ -62,7 +62,9 @@ final class DemoFeed {
         for i in 0..<8 {
             seq += 1
             let author = speakerPool[i % speakerPool.count]
-            let dict = message(id: seq, author: author, text: Self.lines[i % Self.lines.count])
+            // Hours old, like history from the real server.
+            let dict = message(id: seq, author: author, text: Self.lines[i % Self.lines.count],
+                               at: Date().addingTimeInterval(-Double(8 - i) * 1800))
             messages[seq] = dict
             history.append(Self.decode(Message.self, dict)!)
         }
@@ -178,11 +180,12 @@ final class DemoFeed {
         onEvent?(event)
     }
 
-    private func message(id: Int, author: (fp: String, name: String), text: String, mentions: [String] = []) -> [String: Any] {
+    private func message(id: Int, author: (fp: String, name: String), text: String, mentions: [String] = [],
+                         at date: Date = Date()) -> [String: Any] {
         [
             "id": id, "room": roomID, "author": ["identity": author.fp, "name": author.name],
             "client": ["name": "demo"], "text": text, "mentions": mentions, "nonce": "demo\(id)nonce",
-            "signature": NSNull(), "version": 1, "created_at": Self.timestamp(Date()), "edited_at": NSNull(),
+            "signature": NSNull(), "version": 1, "created_at": Self.timestamp(date), "edited_at": NSNull(),
             "reactions": [] as [Any], "expires_at": Self.timestamp(Date().addingTimeInterval(3600)),
         ]
     }
