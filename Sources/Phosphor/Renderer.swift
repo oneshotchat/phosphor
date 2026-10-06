@@ -269,7 +269,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                         activity: controller.activity[room] ?? ChatController.Activity())
         }
         keepScrollbackSteady()
-        buildGhosts(into: &geometry, dt: dt, aspect: aspect, fovy: fovy, cameraRight: cameraRight, cameraUp: cameraUp)
+        buildGhosts(into: &geometry, dt: dt, aspect: aspect, fovy: fovy)
 
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()
@@ -447,7 +447,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             scene.targetBackground = active ? 0 : 1
             if scenes[id] == nil {
                 scene.settle()
-                if joinedFromBrowser != nil { scene.startAsGhost(rolledUp: layout == .ring) }
+                if joinedFromBrowser != nil { scene.startAsGhost() }
                 scenes[id] = scene
             }
             scene.isActive = active
@@ -482,11 +482,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         return SIMD3(x, 0, z)
     }
 
-    /// The overview's rooms you haven't joined: a row in front of the active room, in the
-    /// current layout's form. If they don't all fit across the view, the row slides to keep
-    /// the selected one on screen.
-    private func buildGhosts(into g: inout FrameGeometry, dt: Float, aspect: Float, fovy: Float,
-                             cameraRight: SIMD3<Float>, cameraUp: SIMD3<Float>) {
+    /// The overview's rooms you haven't joined: a row in front of the active room. If they
+    /// don't all fit across the view, the row slides to keep the selected one on screen.
+    private func buildGhosts(into g: inout FrameGeometry, dt: Float, aspect: Float, fovy: Float) {
         let browser = controller.browser
         if browser.isOpen {
             ghostRooms = browser.entries.compactMap { if case .listed(let room) = $0 { room } else { nil } }
@@ -497,8 +495,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             return
         }
 
-        // A room's width plus a gap: cylinders two squares apart, narrow flat rooms one.
-        let pitch: Float = layout == .ring ? BrowserScene.width + 4 : BrowserScene.flatWidth + 2
+        let pitch: Float = BrowserScene.width + 2                // a square between rooms
         let count = ghostRooms.count
         let selected = browser.selected?.id
         let selectedIndex = ghostRooms.firstIndex { $0.id == selected }
@@ -518,16 +515,12 @@ final class Renderer: NSObject, MTKViewDelegate {
         for (i, room) in ghostRooms.enumerated() {
             let x = (Float(i) - Float(count - 1) / 2) * pitch + ghostScroll
             guard abs(x) < halfView + pitch * 1.5 else { continue }    // well off screen
-            // Cylinders are much deeper than a flat room's line, so they stand back by their
-            // radius to keep their labels clear of the input box.
             let origin = SIMD3<Float>(x, 0, Self.ghostRowZ)
             origins[room.id] = origin
             placed.append(BrowserScene.Placed(room: room, origin: origin))
         }
         ghostOrigins = origins
-        browserScene.build(into: &g, rooms: placed, selected: browser.isOpen ? selected : nil,
-                           cylinders: layout == .ring, alpha: ghostAlpha, theme: theme,
-                           cameraRight: cameraRight, cameraUp: cameraUp)
+        browserScene.build(into: &g, rooms: placed, selected: browser.isOpen ? selected : nil, alpha: ghostAlpha, theme: theme)
     }
 
     /// The highest the view may fly: the top of everything loaded.
