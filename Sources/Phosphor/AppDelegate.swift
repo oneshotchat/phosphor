@@ -113,6 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleBrowser(_ sender: Any?) { (window.contentView as? PhosphorView)?.toggleBrowser() }
     @objc func toggleLayout(_ sender: Any?) { renderer.layout = renderer.layout == .ring ? .row : .ring }
     @objc func leaveRoom(_ sender: Any?) { controller.leaveActive() }
+    @objc func toggleSigning(_ sender: Any?) { controller.signByDefault.toggle() }
+
+    /// Keeps toggle items' checkmarks current.
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(toggleSigning(_:)) { item.state = controller.signByDefault ? .on : .off }
+        return true
+    }
     @objc func nextRoom(_ sender: Any?) { controller.cycle(1) }
     @objc func previousRoom(_ sender: Any?) { controller.cycle(-1) }
     @objc func goToRoom(_ sender: NSMenuItem) { controller.activate(index: sender.tag) }
@@ -131,7 +138,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.target = target
             return i
         }
-        submenu("Phosphor", [item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q")])
+        submenu("Phosphor", [
+            item("Sign Messages", #selector(toggleSigning(_:)), "", target: self),
+            NSMenuItem.separator(),
+            item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q"),
+        ])
         submenu("Edit", [item("Paste", #selector(PhosphorView.paste(_:)), "v")])
         submenu("View", [
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),

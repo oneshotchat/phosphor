@@ -34,6 +34,11 @@ final class ChatController {
     private(set) var activity: [String: Activity] = [:]
     private(set) var notices: [Notice] = []
     private(set) var displayName = "anon"
+    /// Sign messages and edits by default (Phosphor → Sign Messages). A signature proves a
+    /// message is yours and untouched, but it also can't be denied later.
+    var signByDefault: Bool = UserDefaults.standard.object(forKey: "signMessages") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(signByDefault, forKey: "signMessages") }
+    }
     /// Message the user has selected with the arrow keys; commands act on it.
     var focus: Int?
 
@@ -300,13 +305,15 @@ final class ChatController {
             do {
                 switch head {
                 case "/help":
-                    note(.info, "/sign text · /edit [id] text · /react [id] 👍 · /unreact · /join room [key] · /leave · /nick name · ⌘←→ ⌘1-9 rooms · ↑↓ select · ⌘R read · ⌘G ring/row")
+                    note(.info, "/sign or /unsigned text · /edit [id] text · /react [id] 👍 · /unreact · /join room [key] · /leave · /nick name · ⌘←→ ⌘1-9 rooms · ↑↓ select · ⌘R read · ⌘G ring/row")
+                case "/unsigned":
+                    try await send(rest, labels: labels, sign: false)
                 case "/sign":
                     try await send(rest, labels: labels, sign: true)
                 case "/edit", "/sedit":
                     let (target, text) = targetMessage(rest, mine: true)
                     guard let target else { return note(.error, "no message of yours to edit") }
-                    if let edited = try await session?.edit(target, to: MentionText.compose(text, labels: labels), sign: head == "/sedit") {
+                    if let edited = try await session?.edit(target, to: MentionText.compose(text, labels: labels), sign: head == "/sedit" || signByDefault) {
                         onOwnMessage?(edited.room, edited, true)
                     }
                 case "/react", "/unreact":
@@ -320,7 +327,7 @@ final class ChatController {
                     try await session?.client.setName(rest)
                     displayName = rest
                 default:
-                    if head.hasPrefix("/") { note(.error, "unknown command \(head); /help") } else { try await send(line, labels: labels, sign: false) }
+                    if head.hasPrefix("/") { note(.error, "unknown command \(head); /help") } else { try await send(line, labels: labels, sign: signByDefault) }
                 }
             } catch let error as OSCError {
                 note(.error, "\(error.code): \(error.message)")

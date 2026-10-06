@@ -37,7 +37,8 @@ struct HUD {
             text(SafeText.clean(topic).replacingOccurrences(of: "\n", with: " "), mx, y, 12, theme.primary, 0.75)
             y -= 16 * scale
         }
-        text("you: \(SafeText.clean(myLabel))   /help for commands", mx, y, 12, theme.primary, 0.6)
+        text("you: \(SafeText.clean(myLabel)) · \(controller.signByDefault ? "signing" : "unsigned")   /help for commands",
+             mx, y, 12, theme.primary, 0.6)
 
         // Joined rooms, top right: ⌘ number, name, unread count, and @ if you were mentioned.
         var items: [(String, SIMD3<Float>, Float)] = []
