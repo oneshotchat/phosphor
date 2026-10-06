@@ -22,7 +22,19 @@ final class DemoTour {
         self.fast = fast
     }
 
+    /// Your CRT and layout settings, put back on quit: the tour changes them, and they're
+    /// remembered between launches.
+    private var savedCRT = false
+    private var savedLayout = RoomLayout.ring
+
+    func restoreSettings() {
+        renderer.crtEnabled = savedCRT
+        renderer.layout = savedLayout
+    }
+
     func start(after lead: Double = 6) {
+        savedCRT = renderer.crtEnabled
+        savedLayout = renderer.layout
         task = Task { [weak self] in
             do {
                 try await Task.sleep(for: .seconds(lead))     // let the rooms fill up
@@ -119,8 +131,8 @@ final class DemoTour {
         try await wait(5, 1.2)
         renderer.nextTheme()
         try await wait(5, 1.6)
+        // Back to the signature colours, keeping the CRT look on for the ending.
         while renderer.themeName != "vector" { renderer.nextTheme() }
-        renderer.crtEnabled = false
 
         // 11. Ending: over to #dev and up through its history, slow at first, faster and
         //     faster, on past the oldest message into the sky. Fade out here.
