@@ -121,6 +121,20 @@ final class DemoTour {
         try await wait(5, 1.6)
         while renderer.themeName != "vector" { renderer.nextTheme() }
         renderer.crtEnabled = false
+
+        // 11. Ending: over to #dev and up through its history, slow at first, faster and
+        //     faster, on past the oldest message into the sky. Fade out here.
+        controller.activate(index: 1)
+        try await wait(5, 3)
+        renderer.liftPastTop = true
+        let climb: Double = fast ? 7 : 9
+        try await animate(climb, climb) { t in self.renderer.camera.liftTarget = 280 * t * t * t }
+        // …and keep going, at the speed it reached, until the video fades.
+        let speed: Float = 3 * 280 / Float(climb)
+        while true {
+            renderer.camera.liftTarget += speed / 60
+            try await Task.sleep(for: .milliseconds(16))
+        }
     }
 
     // MARK: helpers

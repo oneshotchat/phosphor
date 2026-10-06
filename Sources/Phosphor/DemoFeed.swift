@@ -38,7 +38,7 @@ final class DemoFeed {
         return line
     }
 
-    init(name: String, topic: String, me: String, myName: String, speakers: Int, pace: ClosedRange<Int>) {
+    init(name: String, topic: String, me: String, myName: String, speakers: Int, pace: ClosedRange<Int>, history count: Int = 8) {
         self.speakers = max(1, speakers)
         self.me = me
         self.pace = pace
@@ -60,12 +60,12 @@ final class DemoFeed {
 
         // Some history, already written.
         var history: [Message] = []
-        for i in 0..<8 {
+        for i in 0..<count {
             seq += 1
             let author = speakerPool[i % speakerPool.count]
             // Hours old, like history from the real server.
             let dict = message(id: seq, author: author, text: nextLine(),
-                               at: Date().addingTimeInterval(-Double(8 - i) * 1800))
+                               at: Date().addingTimeInterval(-Double(count - i) * 1800))
             messages[seq] = dict
             history.append(Self.decode(Message.self, dict)!)
         }

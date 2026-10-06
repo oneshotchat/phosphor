@@ -18,6 +18,8 @@ struct PostUniforms {
 @MainActor
 final class Renderer: NSObject, MTKViewDelegate {
     var camera = Camera()
+    /// Lets the view keep flying up past the oldest message (the tours' warp-speed ending).
+    var liftPastTop = false
     /// Curvature, scanlines and grain. Off unless turned on (⌘E); remembered.
     var crtEnabled = UserDefaults.standard.bool(forKey: "crtEnabled") {
         didSet { UserDefaults.standard.set(crtEnabled, forKey: "crtEnabled") }
@@ -229,7 +231,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         let aspect = Float(size.width / size.height)
         let fovy: Float = 0.9
         // Scrollback: lift eases at the same rate panels glide, so both move together.
-        camera.liftTarget = simd_clamp(camera.liftTarget, 0, maxLift)
+        camera.liftTarget = simd_clamp(camera.liftTarget, 0, liftPastTop ? .infinity : maxLift)
         camera.lift += (camera.liftTarget - camera.lift) * min(1, dt * 8)
         activeScene?.isLifted = camera.liftTarget > 1
         var desiredEye = camera.eye, desiredTarget = camera.center
@@ -296,7 +298,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         let viewport = SIMD2(Float(size.width), Float(size.height))
         if let input = phosphorView?.input {
             let unseen = activeScene?.unseen ?? 0
-            let hint: String? = activeScene?.isLifted != true ? nil
+            let hint: String? = activeScene?.isLifted != true || liftPastTop ? nil
                 : unseen > 0 ? "↓ \(unseen) new  ·  ⌘↓ latest" : "scrolled up  ·  ⌘↓ latest"
             hud.build(into: &hudGeometry, viewport: viewport, scale: pixelScale, controller: controller, input: input,
                       theme: theme, hint: hint)

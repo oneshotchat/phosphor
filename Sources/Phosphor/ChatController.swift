@@ -249,15 +249,17 @@ final class ChatController {
         demoMe = me
         demoName = name
         displayName = name
-        let specs: [(String, String, Int, ClosedRange<Int>)] = [
-            ("lobby", "say hi · messages last 7 days", speakers, 1600...3600),
-            ("dev", "building OneShotChat clients", 6, 900...2200),
-            ("clients", "show and tell: new clients", 3, 4000...9000),
-            ("offtopic", "everything else", 1, 9000...20000),
+        // #dev is the busy room with a long past (the tours end by flying up through it).
+        let specs: [(String, String, Int, ClosedRange<Int>, Int)] = [
+            ("lobby", "say hi · messages last 7 days", speakers, 1600...3600, 20),
+            ("dev", "building OneShotChat clients", 6, 900...2200, 50),
+            ("clients", "show and tell: new clients", 3, 4000...9000, 8),
+            ("offtopic", "everything else", 1, 9000...20000, 8),
         ]
-        for (name, topic, speakers, pace) in specs {
+        for (name, topic, speakers, pace, history) in specs {
             let scaled = Int(Double(pace.lowerBound) * paceScale)...Int(Double(pace.upperBound) * paceScale)
-            let feed = DemoFeed(name: name, topic: topic, me: me, myName: self.demoName, speakers: speakers, pace: scaled)
+            let feed = DemoFeed(name: name, topic: topic, me: me, myName: self.demoName, speakers: speakers, pace: scaled,
+                                history: history)
             feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
             feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
             demos[feed.roomID] = feed
