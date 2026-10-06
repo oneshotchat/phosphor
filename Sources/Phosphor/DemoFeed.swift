@@ -70,6 +70,11 @@ final class DemoFeed {
         state.load(history)
     }
 
+    func stop() {
+        task?.cancel()
+        task = nil
+    }
+
     func start() {
         task = Task { [weak self] in
             while !Task.isCancelled {

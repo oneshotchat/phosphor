@@ -156,6 +156,31 @@ final class ChatController {
         onActiveChanged?(old, room)
     }
 
+    /// Leaves a room (⌘W or /leave): the server is told, the room drops out of the layout
+    /// and the next one along becomes active. Leaving is per room; your roles are kept.
+    func leave(_ room: String) {
+        guard rooms.contains(room) else { return }
+        let name = state(room)?.room.name ?? "?"
+        if let demo = demos[room] {
+            demo.stop()
+            demos[room] = nil
+            removeRoom(room)
+            note(.info, "left #\(name)")
+            return
+        }
+        Task {
+            do {
+                try await session?.leave(room)      // reports .left, which removes the room
+            } catch {
+                note(.error, "couldn't leave #\(name): \(error)")
+            }
+        }
+    }
+
+    func leaveActive() {
+        if let activeRoom { leave(activeRoom) }
+    }
+
     /// ⌘1…⌘9 (zero-based here).
     func activate(index: Int) {
         if rooms.indices.contains(index) { activate(rooms[index]) }
@@ -229,11 +254,17 @@ final class ChatController {
     func submit(_ raw: String, labels: [String: String]) {
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
+        let (head, rest) = split(line)
+        if head == "/leave" || head == "/part" {
+            let name = rest.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased()
+            let target = name.isEmpty ? activeRoom : rooms.first { state($0)?.room.name == name }
+            guard let target else { return note(.error, "not in #\(name)") }
+            return leave(target)
+        }
         if demoMe != nil {
             if let activeRoom { demos[activeRoom]?.input(MentionText.compose(line, labels: labels)) }
             return
         }
-        let (head, rest) = split(line)
         Task {
             do {
                 switch head {
@@ -252,11 +283,6 @@ final class ChatController {
                 case "/join":
                     let (name, key) = split(rest.trimmingCharacters(in: .whitespaces))
                     await join(name.trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased(), key: key.isEmpty ? nil : key)
-                case "/leave", "/part":
-                    let name = rest.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased()
-                    let target = name.isEmpty ? activeRoom : rooms.first { state($0)?.room.name == name }
-                    guard let target else { return note(.error, "not in #\(name)") }
-                    try await session?.leave(target)
                 case "/nick":
                     try await session?.client.setName(rest)
                     displayName = rest

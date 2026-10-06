@@ -102,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleCRT(_ sender: Any?) { renderer.crtEnabled.toggle() }
     @objc func toggleBrowser(_ sender: Any?) { (window.contentView as? PhosphorView)?.toggleBrowser() }
     @objc func toggleLayout(_ sender: Any?) { renderer.layout = renderer.layout == .ring ? .row : .ring }
+    @objc func leaveRoom(_ sender: Any?) { controller.leaveActive() }
     @objc func nextRoom(_ sender: Any?) { controller.cycle(1) }
     @objc func previousRoom(_ sender: Any?) { controller.cycle(-1) }
     @objc func goToRoom(_ sender: NSMenuItem) { controller.activate(index: sender.tag) }
@@ -133,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let arrow = { (key: Int) in String(UnicodeScalar(key)!) }
         submenu("Rooms", [
             item("Room Browser", #selector(toggleBrowser(_:)), "l", target: self),
+            item("Leave Room", #selector(leaveRoom(_:)), "w", target: self),
             NSMenuItem.separator(),
             item("Next Room", #selector(nextRoom(_:)), arrow(NSRightArrowFunctionKey), target: self),
             item("Previous Room", #selector(previousRoom(_:)), arrow(NSLeftArrowFunctionKey), target: self),
