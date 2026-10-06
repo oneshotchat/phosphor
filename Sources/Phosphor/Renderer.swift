@@ -369,7 +369,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                 // A line in the distance with a gap in the middle, so the rooms flank the
                 // active wall instead of hiding behind it. Slots follow join order, so a
                 // room always returns to the same place.
-                active ? .zero : rowSlot(i, of: count)
+                active ? .zero : rowSlot(i, of: count).position
             }
             var p = placements[id] ?? RoomScene.Placement(origin: target)
             p.origin += (target - p.origin) * (layout == .row ? min(1, dt * 3) : follow)
@@ -377,27 +377,39 @@ final class Renderer: NSObject, MTKViewDelegate {
             p.normal = simd_length(toCamera) > 0.01 ? simd_normalize(SIMD3(toCamera.x, 0, toCamera.z)) : SIMD3(0, 0, 1)
             placements[id] = p
 
-            let scene: RoomScene
-            if let existing = scenes[id] {
-                scene = existing
-            } else {
-                scene = RoomScene(atlas: atlas)
-                scene.startRolledUp()
+            // Background rooms roll into cylinders in the ring; in the row they stay flat
+            // walls, drawn small enough to fit beside the active one.
+            let scene = scenes[id] ?? RoomScene(atlas: atlas)
+            scene.placement = p
+            scene.targetCurl = active || layout == .row ? 0 : 1
+            scene.targetBackground = active ? 0 : 1
+            scene.targetScale = active || layout == .ring ? 1 : rowSlot(i, of: count).scale
+            if scenes[id] == nil {
+                scene.settle()
                 scenes[id] = scene
             }
-            scene.placement = p
-            scene.targetCurl = active ? 0 : 1
             scene.isActive = active
             scene.dim = active ? 1 : 0.5
             scene.detailed = active || simd_distance(eye, p.origin) < 24
         }
     }
 
-    private func rowSlot(_ i: Int, of count: Int) -> SIMD3<Float> {
-        let t = count > 1 ? Float(i) / Float(count - 1) * 2 - 1 : 0      // -1 … 1
-        let gap: Float = 17, span: Float = 31
-        let x = t == 0 ? 0 : (t < 0 ? -1 : 1) * (gap + abs(t) * (span - gap))
-        return SIMD3(x, 0, -26)
+    /// Slot `i` of `count` in the row: the first half to the left of the active wall, the
+    /// rest to the right, in the band of floor that's visible but not behind the wall.
+    /// Crowded rows draw their rooms smaller.
+    private func rowSlot(_ i: Int, of count: Int) -> (position: SIMD3<Float>, scale: Float) {
+        let z: Float = -30, cameraZ: Float = 19
+        let depth = cameraZ - z
+        let hidden = 8 * depth / cameraZ + 1             // behind the active wall from the camera
+        let visible = 0.77 * depth - 1                   // half the view's width at that depth
+        let band = visible - hidden
+        let left = count / 2, right = count - left
+        let spacing = band / Float(max(left, right, 1))
+        let scale = min(0.5, spacing * 0.85 / 16)
+        let x: Float = i < left
+            ? -(visible - (Float(i) + 0.5) * spacing)
+            : hidden + (Float(i - left) + 0.5) * spacing
+        return (SIMD3(x, 0, z), scale)
     }
 
     /// The highest the view may fly: the top of everything loaded.

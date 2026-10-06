@@ -79,6 +79,12 @@ final class RoomScene {
     /// 0 flat … 1 rolled into a cylinder. Eases toward `targetCurl`.
     private(set) var curl: Float = 0
     var targetCurl: Float = 0
+    /// 0 active … 1 in the background (dimmer, messages drift up with age, floor label).
+    private(set) var background: Float = 0
+    var targetBackground: Float = 0
+    /// Distant rooms in the row are drawn smaller.
+    private(set) var scale: Float = 1
+    var targetScale: Float = 1
 
     // Set by the renderer from the ring/row layout each frame.
     struct Placement {
@@ -111,10 +117,11 @@ final class RoomScene {
     }
 
     /// Forget animations (room switched or reloaded). Existing people and messages just appear.
-    /// A newly joined background room starts as a cylinder rather than unrolling into one.
-    func startRolledUp() {
-        curl = 1
-        targetCurl = 1
+    /// A newly joined room starts where the layout wants it rather than animating there.
+    func settle() {
+        curl = targetCurl
+        background = targetBackground
+        scale = targetScale
     }
 
     func reset() {
@@ -164,6 +171,11 @@ final class RoomScene {
         let dt = min(max(now - lastBuild, 0), 0.1)
         lastBuild = now
         curl += (targetCurl - curl) * min(1, dt * 3)
+        background += (targetBackground - background) * min(1, dt * 3)
+        scale += (targetScale - scale) * min(1, dt * 3)
+        g.pivot = placement.origin
+        g.scale = scale
+        defer { g.scale = 1 }
         beams.removeAll { now - $0.at > 1.4 }
 
         let n = placement.normal
@@ -237,7 +249,8 @@ final class RoomScene {
 
         // Rolled up in the background: its name and ⌘ number on the floor in front, a
         // brighter base while it has unread messages, and a beacon if you were mentioned.
-        if curl > 0.05 {
+        if background > 0.05 {
+            g.scale = 1      // labels stay readable however small the room is drawn
             var label = "⌘\(index + 1) #" + SafeText.clean(state.room.name)
             if activity.unread > 0 { label += "  •\(activity.unread)" }
             if activity.mentioned { label += "  @you" }
@@ -245,16 +258,18 @@ final class RoomScene {
             let w = FrameGeometry.textWidth(label, atlas: atlas, height: height)
             g.text(label, atlas: atlas, origin: placement.origin + n * 1.6 - surface.right * (w / 2) + SIMD3(0, 0.02, 0),
                    right: surface.right, up: -n, height: height,
-                   color: activity.mentioned ? theme.accent : theme.primary, intensity: (activity.unread > 0 ? 1.4 : 0.8) * curl)
+                   color: activity.mentioned ? theme.accent : theme.primary, intensity: (activity.unread > 0 ? 1.4 : 0.8) * background)
             if activity.unread > 0 {
+                g.scale = scale
+                defer { g.scale = 1 }
                 g.surfaceLine(surface, s0: -wallWidth / 2, s1: wallWidth / 2, y: 0.05, theme.primary,
-                              intensity: min(Float(activity.unread), 8) * 0.25 * curl, width: 2.5)
+                              intensity: min(Float(activity.unread), 8) * 0.25 * background, width: 2.5)
             }
             if activity.mentioned {
                 g.gain = 1
-                let center = surface.point(0, 0) - n * surface.cylinderRadius * curl
+                let center = placement.origin - n * surface.cylinderRadius * curl * scale
                 let pulse = 1.4 + 0.8 * sin(now * 4)
-                g.line(center, center + SIMD3(0, 22, 0), theme.accent, intensity: pulse * curl, width: 3)
+                g.line(center, center + SIMD3(0, 22, 0), theme.accent, intensity: pulse * background, width: 3)
                 g.gain = dim
             }
         }
@@ -312,7 +327,7 @@ final class RoomScene {
         var targets: [Int: Float] = [:]
         newestVisible = newestFirst.first?.id
         let half = wallWidth / 2
-        let maxWidth = wallWidth * maxWidthFraction
+        let maxWidth = wallWidth * mix(maxWidthFraction, 0.45, t: curl)
 
         // Stack every loaded message (heights are cached), but only draw the ones in view.
         var cursor = baseY
@@ -323,8 +338,9 @@ final class RoomScene {
             // In the background, messages also rise with age, so a cylinder's fullness is
             // its recent activity; the active room stacks by count so nothing drifts off unread.
             let age = message.createdAt.map { Float(-$0.timeIntervalSinceNow) } ?? 0
-            let bottom = max(cursor, baseY + age * 0.05 * curl)
-            cursor = bottom + height + gap
+            let bottom = max(cursor, baseY + age * 0.05 * background)
+            // Rolled up, messages spread around the cylinder, so they can stack tighter.
+            cursor = bottom + (height + gap) * mix(1, 0.5, t: curl)
             targets[message.id] = bottom
             if nearest == nil || abs(bottom - viewY) < nearest!.distance { nearest = (message.id, abs(bottom - viewY)) }
 
@@ -339,11 +355,15 @@ final class RoomScene {
                                           textWidth(label, height: labelHeight)) + pad * 2)
 
             // Horizontal anchor from the author's lane.
-            let anchor: Float = switch lanes.align[message.author.identity] ?? .left {
+            let laneAnchor: Float = switch lanes.align[message.author.identity] ?? .left {
             case .center(let s): simd_clamp(s, -half + width / 2, half - width / 2)
             case .left: -half + width / 2
             case .right: half - width / 2
             }
+            // Around the cylinder: a stable spot per message, golden-ratio spaced so
+            // neighbours spread evenly.
+            let around = (Float(message.id) * 0.618034).truncatingRemainder(dividingBy: 1) * wallWidth - half
+            let anchor = mix(laneAnchor, around, t: curl)
             visual.y = visual.y.map { $0 + (bottom - $0) * ease } ?? bottom
             visual.s = visual.s.map { $0 + (anchor - $0) * ease } ?? anchor
             panels[message.id] = visual
@@ -513,7 +533,7 @@ final class RoomScene {
                            width: speaker ? width : 1, fraction: draw)
             }
         }
-        guard speaker, curl < 0.5 else { return }
+        guard speaker, background < 0.5 else { return }
         let label = SafeText.clean(person.name)
         let w = FrameGeometry.textWidth(label, atlas: atlas, height: 0.28)
         g.text(label, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * (size + 0.45),
