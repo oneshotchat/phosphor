@@ -101,13 +101,19 @@ final class ChatController {
     /// With nothing to rejoin and no room asked for, nothing is joined: the overview opens
     /// so you can pick (being in a listed room is public, so that's your call).
     func start(room: String?, server: URL = OSCClient.defaultServer) {
+        self.server = server
         if room == nil, savedRooms.isEmpty {
             browser.open()
             note(.info, "pick a room to join, or type a name · esc to close")
         }
-        Task {
+        startTask?.cancel()
+        startTask = Task {
             do {
-                let (identity, file) = try IdentityFile.loadOrCreate(at: IdentityFile.defaultURL)
+                let url = identityURL
+                // Phosphor's own identity is created on first use; one you chose must exist.
+                let (identity, file) = url == IdentityFile.defaultURL
+                    ? try IdentityFile.loadOrCreate(at: url)
+                    : try Self.loadChosenIdentity(url)
                 let client = OSCClient(baseURL: server, identity: identity, displayName: file.name, client: Self.clientInfo)
                 let session = ChatSession(client: client)
                 session.onUpdate = { [weak self] in self?.handle($0) }
@@ -144,9 +150,76 @@ final class ChatController {
                     await refreshListing()
                     try? await Task.sleep(for: .seconds(60))
                 }
+            } catch is CancellationError {
             } catch {
                 note(.error, "login failed: \(error)")
             }
+        }
+    }
+
+    // MARK: identity
+
+    private var startTask: Task<Void, Never>?
+    private var server = OSCClient.defaultServer
+
+    /// An identity file for this launch only (`--identity path`).
+    var launchIdentity: URL?
+
+    /// The identity in use: this launch's, else the one chosen in the menu (remembered),
+    /// else Phosphor's own. Chosen files are used in place, never copied.
+    var identityURL: URL {
+        launchIdentity
+            ?? UserDefaults.standard.string(forKey: "identityPath").map { URL(fileURLWithPath: $0) }
+            ?? IdentityFile.defaultURL
+    }
+
+    private static func loadChosenIdentity(_ url: URL) throws -> (Identity, IdentityFile) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw ChooseIdentityError(message: "no identity file at \(url.path)")
+        }
+        let file = try IdentityFile.read(from: url)
+        return (try file.load(), file)
+    }
+
+    private struct ChooseIdentityError: Error, CustomStringConvertible {
+        var message: String
+        var description: String { message }
+    }
+
+    /// Switches to another identity file (nil: Phosphor's own). The file is checked first;
+    /// then the current identity logs out (leaving its rooms) and the new one logs in and
+    /// rejoins the saved rooms.
+    func useIdentity(at url: URL?) {
+        if let url {
+            do {
+                let identity = try Self.loadChosenIdentity(url).0
+                note(.info, "switching to \(identity.fingerprint.prefix(8))…")
+            } catch {
+                return note(.error, "that isn't a usable identity file: \(error)")
+            }
+            UserDefaults.standard.set(url.path, forKey: "identityPath")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "identityPath")
+        }
+        launchIdentity = nil
+        guard demoMe == nil else { return note(.info, "the identity is used when not in demo mode") }
+
+        let old = session
+        old?.onUpdate = nil
+        old?.stop()
+        startTask?.cancel()
+        // Clear the rooms without touching the saved list, which the new identity rejoins.
+        let previous = activeRoom
+        rooms = []
+        activity = [:]
+        activeRoom = nil
+        focus = nil
+        session = nil
+        listedAt = nil
+        onActiveChanged?(previous, nil)
+        Task {
+            try? await old?.client.logout()
+            start(room: nil, server: server)
         }
     }
 

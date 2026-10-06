@@ -1,4 +1,5 @@
 import AppKit
+import OSCCore
 import MetalKit
 
 @MainActor
@@ -58,8 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Room: first argument or PHOSPHOR_ROOM, else #lobby.
-        let args = CommandLine.arguments.dropFirst()
+        // Room: first argument or PHOSPHOR_ROOM. `--identity path` uses another identity
+        // file for this launch.
+        var args = Array(CommandLine.arguments.dropFirst())
+        if let i = args.firstIndex(of: "--identity"), i + 1 < args.count {
+            controller.launchIdentity = URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath)
+            args.removeSubrange(i...(i + 1))
+        }
         if args.contains("--demo") || env["PHOSPHOR_DEMO"] != nil {
             controller.startDemo(speakers: env["PHOSPHOR_DEMO_SPEAKERS"].flatMap(Int.init) ?? 3)
             if let index = env["PHOSPHOR_ACTIVE"].flatMap(Int.init) { controller.activate(index: index) }
@@ -115,9 +121,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func leaveRoom(_ sender: Any?) { controller.leaveActive() }
     @objc func toggleSigning(_ sender: Any?) { controller.signByDefault.toggle() }
 
+    @objc func chooseIdentity(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an identity file"
+        panel.message = "An identity file is the identity: anyone holding it is you. Phosphor uses it where it is."
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        panel.directoryURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        panel.beginSheetModal(for: window) { [controller] response in
+            guard response == .OK, let url = panel.url else { return }
+            MainActor.assumeIsolated { controller.useIdentity(at: url) }
+        }
+    }
+
+    @objc func useOwnIdentity(_ sender: Any?) { controller.useIdentity(at: nil) }
+
     /// Keeps toggle items' checkmarks current.
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(toggleSigning(_:)) { item.state = controller.signByDefault ? .on : .off }
+        if item.action == #selector(useOwnIdentity(_:)) { item.state = controller.identityURL == IdentityFile.defaultURL ? .on : .off }
         return true
     }
     @objc func nextRoom(_ sender: Any?) { controller.cycle(1) }
@@ -140,6 +163,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         submenu("Phosphor", [
             item("Sign Messages", #selector(toggleSigning(_:)), "", target: self),
+            NSMenuItem.separator(),
+            item("Use Identity File…", #selector(chooseIdentity(_:)), "", target: self),
+            item("Use Phosphor's Own Identity", #selector(useOwnIdentity(_:)), "", target: self),
             NSMenuItem.separator(),
             item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q"),
         ])
