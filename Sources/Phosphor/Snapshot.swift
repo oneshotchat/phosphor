@@ -12,9 +12,11 @@ final class Snapshot {
     let at: Float
     let readingMode: Bool
     let theme: Int
+    let curl: Float
     private var taken = false
 
-    private init(path: String, at: Float, readingMode: Bool, theme: Int) {
+    private init(path: String, at: Float, readingMode: Bool, theme: Int, curl: Float) {
+        self.curl = curl
         self.path = path
         self.at = at
         self.readingMode = readingMode
@@ -28,7 +30,8 @@ final class Snapshot {
             path: path,
             at: env["PHOSPHOR_SNAPSHOT_AT"].flatMap(Float.init) ?? 6,
             readingMode: env["PHOSPHOR_READING"] == "1",
-            theme: env["PHOSPHOR_THEME"].flatMap(Int.init) ?? 0
+            theme: env["PHOSPHOR_THEME"].flatMap(Int.init) ?? 0,
+            curl: env["PHOSPHOR_CURL"].flatMap(Float.init) ?? 0
         )
     }
 

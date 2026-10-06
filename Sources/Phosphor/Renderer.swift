@@ -99,6 +99,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         if let snapshot {
             readingMode = snapshot.readingMode
             themeIndex = snapshot.theme % Theme.all.count
+            scene.targetCurl = snapshot.curl
         }
     }
 
@@ -156,7 +157,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         effects += ((crtEnabled && !readingMode ? 1 : 0) - effects) * min(1, dt * 6)
 
         // Camera: orbit, or face the selected (else newest) message head-on in reading mode.
-        if !readingMode { camera.yaw += dt * 0.04 }
         let aspect = Float(size.width / size.height)
         let fovy: Float = 0.9
         var desiredEye = camera.eye, desiredTarget = camera.target
@@ -183,8 +183,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         var geometry = FrameGeometry()
         geometry.pixelScale = pixelScale
         scene.build(into: &geometry, state: controller.state, theme: theme, me: controller.me, origin: controller.origin,
-                    focus: controller.focus, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
-                    followCamera: !readingMode)
+                    focus: controller.focus, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp)
 
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()
@@ -209,7 +208,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         let previous = accum[accumIndex]
         accumIndex ^= 1
         let current = accum[accumIndex]
-        var decay = powf(simd_mix(0.55, 0.86, effects), dt * 60)
+        var decay = powf(simd_mix(0.55, 0.8, effects), dt * 60)
         if let enc = pass(cb, current, clear: false) {
             enc.setRenderPipelineState(persistPipeline)
             enc.setFragmentTexture(sceneTexture, index: 0)

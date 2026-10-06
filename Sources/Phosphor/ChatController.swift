@@ -32,10 +32,23 @@ final class ChatController {
     /// Called when the current room's state is replaced or switched.
     var onRoomChanged: (() -> Void)?
 
-    var state: RoomState? { roomID.flatMap { session?.rooms[$0] } }
-    var me: String { session?.me ?? "" }
+    /// Offline scripted room (`--demo`); when set, it replaces the session entirely.
+    private(set) var demo: DemoFeed?
+
+    var state: RoomState? { demo?.state ?? roomID.flatMap { session?.rooms[$0] } }
+    var me: String { demo?.me ?? session?.me ?? "" }
     var origin: String { session?.client.origin ?? "" }
-    var connection: EventSocket.Status { session?.connection ?? .connecting }
+    var connection: EventSocket.Status { demo != nil ? .connected : session?.connection ?? .connecting }
+
+    func startDemo(speakers: Int) {
+        let feed = DemoFeed(speakers: speakers)
+        feed.onEvent = { [weak self] in self?.onEvent?($0) }
+        demo = feed
+        displayName = "you"
+        onRoomChanged?()
+        note(.info, "offline demo room: nothing is sent anywhere")
+        feed.start()
+    }
 
     /// Fingerprints of rooms we've been in, by name, to spot a name taken over by a new room.
     private var knownRooms: [String: String] {
@@ -67,6 +80,7 @@ final class ChatController {
     func submit(_ raw: String, labels: [String: String]) {
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
+        if let demo { return demo.input(MentionText.compose(line, labels: labels)) }
         let (head, rest) = split(line)
         Task {
             do {

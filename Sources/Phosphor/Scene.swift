@@ -33,10 +33,10 @@ struct Theme {
 }
 
 struct Camera {
-    var yaw: Float = 0.5
-    var pitch: Float = 0.22
-    var distance: Float = 23
-    var target = SIMD3<Float>(0, 6, 0)
+    var yaw: Float = 0
+    var pitch: Float = 0.1
+    var distance: Float = 19
+    var target = SIMD3<Float>(0, 7.2, 0)
 
     mutating func orbit(dx: Float, dy: Float) {
         yaw -= dx * 0.005
@@ -93,7 +93,7 @@ struct FrameGeometry {
         for (i, g) in line.glyphs.enumerated() {
             let ahead = reveal - Float(i)
             if ahead <= 0 { break }
-            let burn: Float = ahead < 1 ? 2.8 : 1 + 1.8 * max(0, 1 - (ahead - 1) / 6)
+            let burn = Self.burn(ahead)
             let e = g.entry
             let o = origin + right * ((g.x + e.offset.x) * scale) + up * (e.offset.y * scale)
             glyphs.append(GlyphInstance(
@@ -108,6 +108,99 @@ struct FrameGeometry {
 
     static func textWidth(_ string: String, atlas: GlyphAtlas, height: Float) -> Float {
         atlas.layout(string).width * height / Float(atlas.bakeSize)
+    }
+
+    /// The glyph under the beam burns brightest, then settles.
+    private static func burn(_ ahead: Float) -> Float {
+        ahead < 1 ? 2.8 : 1 + 1.8 * max(0, 1 - (ahead - 1) / 6)
+    }
+
+    // MARK: on a surface
+
+    /// A line along the surface at height `y`, from arc position `s0` to `s1`; curved when curled.
+    mutating func surfaceLine(_ surface: Surface, s0: Float, s1: Float, y: Float, _ color: SIMD3<Float>,
+                              intensity: Float = 1, width: Float = 1.5) {
+        polyline(surface.arc(s0, s1, y: y), color, intensity: intensity, width: width)
+    }
+
+    /// A rectangle on the surface. `fraction` draws it on, starting bottom-left.
+    mutating func surfaceRect(_ surface: Surface, s0: Float, s1: Float, y0: Float, y1: Float, _ color: SIMD3<Float>,
+                              intensity: Float = 1, width: Float = 1.5, fraction: Float = 1) {
+        let bottom = surface.arc(s0, s1, y: y0)
+        let top = surface.arc(s1, s0, y: y1)
+        polyline(bottom + top + [bottom[0]], color, intensity: intensity, width: width, fraction: fraction)
+    }
+
+    /// Text along the surface's curve, each glyph tangent to it. Glyphs turned away from
+    /// `eye` fade out, so text on the far side of a cylinder never shows mirrored.
+    mutating func surfaceText(_ string: String, atlas: GlyphAtlas, surface: Surface, s: Float, baseline: Float,
+                              height: Float, color: SIMD3<Float>, intensity: Float = 1, reveal: Float = .infinity,
+                              eye: SIMD3<Float>) {
+        guard intensity > 0.001 else { return }
+        let line = atlas.layout(string)
+        let scale = height / Float(atlas.bakeSize)
+        let up = SIMD3<Float>(0, 1, 0)
+        for (i, g) in line.glyphs.enumerated() {
+            let ahead = reveal - Float(i)
+            if ahead <= 0 { break }
+            let e = g.entry
+            let gs = s + (g.x + e.offset.x) * scale
+            let w = e.size.x * scale
+            let o = surface.point(gs, baseline + e.offset.y * scale)
+            let facing = simd_dot(surface.normal(at: gs + w / 2), simd_normalize(eye - o))
+            let fade = smoothstep(-0.05, 0.3, facing)
+            guard fade > 0.001 else { continue }
+            glyphs.append(GlyphInstance(
+                origin: SIMD4(o, 0),
+                right: SIMD4(surface.tangent(at: gs + w / 2) * w, 0),
+                up: SIMD4(up * (e.size.y * scale), 0),
+                uvRect: e.uvRect,
+                color: SIMD4(color, intensity * Self.burn(ahead) * fade)
+            ))
+        }
+    }
+}
+
+/// A wall that can roll up into a cylinder. Positions on it are arc length `s` along
+/// the wall (0 at the middle) and height `y`. With `curl` 0 it's flat, facing `normal`;
+/// with `curl` 1 it's a closed cylinder whose circumference is `width`, standing behind
+/// where the wall was. Everything a room draws goes through this, so rolling a room up
+/// or flattening it is a single animated number.
+struct Surface {
+    var origin: SIMD3<Float>          // bottom middle of the flat wall
+    var right: SIMD3<Float>
+    var normal: SIMD3<Float>          // toward the viewer when flat
+    var width: Float
+    var curl: Float
+
+    private var kappa: Float { curl * 2 * .pi / width }
+    private var isFlat: Bool { kappa < 1e-5 }
+
+    /// Radius of the fully rolled cylinder.
+    var cylinderRadius: Float { width / (2 * .pi) }
+
+    func point(_ s: Float, _ y: Float) -> SIMD3<Float> {
+        if isFlat { return origin + right * s + SIMD3(0, y, 0) }
+        let theta = s * kappa
+        return origin + right * (sin(theta) / kappa) + normal * ((cos(theta) - 1) / kappa) + SIMD3(0, y, 0)
+    }
+
+    func tangent(at s: Float) -> SIMD3<Float> {
+        if isFlat { return right }
+        let theta = s * kappa
+        return right * cos(theta) - normal * sin(theta)
+    }
+
+    func normal(at s: Float) -> SIMD3<Float> {
+        if isFlat { return normal }
+        let theta = s * kappa
+        return right * sin(theta) + normal * cos(theta)
+    }
+
+    /// Points along the surface at height `y`, finely enough sampled to look curved.
+    func arc(_ s0: Float, _ s1: Float, y: Float) -> [SIMD3<Float>] {
+        let steps = isFlat ? 1 : max(1, Int(abs(s1 - s0) * kappa / 0.12) + 1)
+        return (0...steps).map { point(s0 + (s1 - s0) * Float($0) / Float(steps), y) }
     }
 }
 

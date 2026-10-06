@@ -41,9 +41,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Room: first argument or PHOSPHOR_ROOM, else #lobby.
         let env = ProcessInfo.processInfo.environment
-        let room = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"] ?? "lobby"
-        let server = env["PHOSPHOR_SERVER"].flatMap(URL.init(string:))
-        if let server { controller.start(room: room, server: server) } else { controller.start(room: room) }
+        let args = CommandLine.arguments.dropFirst()
+        if args.contains("--demo") || env["PHOSPHOR_DEMO"] != nil {
+            controller.startDemo(speakers: env["PHOSPHOR_DEMO_SPEAKERS"].flatMap(Int.init) ?? 3)
+        } else {
+            let room = args.first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"] ?? "lobby"
+            let server = env["PHOSPHOR_SERVER"].flatMap(URL.init(string:))
+            if let server { controller.start(room: room, server: server) } else { controller.start(room: room) }
+        }
         DevInput.startIfRequested(controller: controller)
     }
 
@@ -52,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
     @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
     @objc func toggleCRT(_ sender: Any?) { renderer.crtEnabled.toggle() }
+    /// Preview of how background rooms will look until multi-room lands.
+    @objc func toggleCurl(_ sender: Any?) { renderer.scene.targetCurl = renderer.scene.targetCurl > 0.5 ? 0 : 1 }
 
     private func buildMenu() {
         let main = NSMenu()
@@ -73,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),
             item("Next Theme", #selector(nextTheme(_:)), "t", target: self),
             item("CRT Effects", #selector(toggleCRT(_:)), "e", target: self),
+            item("Roll Up Room (preview)", #selector(toggleCurl(_:)), "u", target: self),
         ])
         NSApp.mainMenu = main
     }

@@ -33,6 +33,10 @@ struct HUD {
         text("\(room)  ·  \(here)  ·  \(link)", mx, y, 15, theme.primary, 1.1)
         y -= 20 * scale
         let myLabel = state?.labels[controller.me] ?? controller.displayName
+        if let topic = state?.room.topic, !topic.isEmpty {
+            text(SafeText.clean(topic).replacingOccurrences(of: "\n", with: " "), mx, y, 12, theme.primary, 0.75)
+            y -= 16 * scale
+        }
         text("you: \(SafeText.clean(myLabel))   /help for commands", mx, y, 12, theme.primary, 0.6)
 
         // Notices fade after a while. Server notices get their own color: only they come from the server.
