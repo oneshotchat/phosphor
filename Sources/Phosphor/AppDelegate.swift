@@ -126,10 +126,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        tour?.restoreSettings()
-    }
-
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
     @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
     @objc func jumpToLatest(_ sender: Any?) { renderer.jumpToLatest() }

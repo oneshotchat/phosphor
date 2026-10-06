@@ -22,8 +22,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     var liftPastTop = false
     /// Curvature, scanlines and grain. Off unless turned on (⌘E); remembered.
     var crtEnabled = UserDefaults.standard.bool(forKey: "crtEnabled") {
-        didSet { UserDefaults.standard.set(crtEnabled, forKey: "crtEnabled") }
+        didSet { if rememberSettings { UserDefaults.standard.set(crtEnabled, forKey: "crtEnabled") } }
     }
+    /// Off while a tour runs, so its changes don't stick to your next launch.
+    var rememberSettings = true
     var readingMode = false {
         didSet { readingToggledAt = AppClock.now }
     }
@@ -59,7 +61,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let rowSpeed: Float = 5.5
     var layout: RoomLayout = RoomLayout(rawValue: UserDefaults.standard.string(forKey: "roomLayout") ?? "") ?? .ring {
         didSet {
-            UserDefaults.standard.set(layout.rawValue, forKey: "roomLayout")
+            if rememberSettings { UserDefaults.standard.set(layout.rawValue, forKey: "roomLayout") }
             layoutChangedAt = AppClock.now
             roomsMovedAt = AppClock.now
         }

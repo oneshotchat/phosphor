@@ -22,19 +22,8 @@ final class DemoTour {
         self.fast = fast
     }
 
-    /// Your CRT and layout settings, put back on quit: the tour changes them, and they're
-    /// remembered between launches.
-    private var savedCRT = false
-    private var savedLayout = RoomLayout.ring
-
-    func restoreSettings() {
-        renderer.crtEnabled = savedCRT
-        renderer.layout = savedLayout
-    }
-
     func start(after lead: Double = 6) {
-        savedCRT = renderer.crtEnabled
-        savedLayout = renderer.layout
+        renderer.rememberSettings = false        // the tour's CRT/layout changes don't stick
         task = Task { [weak self] in
             do {
                 try await Task.sleep(for: .seconds(lead))     // let the rooms fill up
