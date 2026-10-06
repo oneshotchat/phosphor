@@ -328,7 +328,9 @@ final class RoomScene {
         var targets: [Int: Float] = [:]
         newestVisible = newestFirst.first?.id
         let half = wallWidth / 2
-        let maxWidth = wallWidth * mix(maxWidthFraction, 0.45, t: curl)
+        // The same in every state: a width that changed with curl re-wrapped messages as a
+        // room rolled or unrolled, changing their heights mid-animation.
+        let maxWidth = wallWidth * maxWidthFraction
 
         // Stack every loaded message (heights are cached), but only draw the ones in view.
         var cursor = baseY
