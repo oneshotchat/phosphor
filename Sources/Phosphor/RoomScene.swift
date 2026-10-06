@@ -31,6 +31,10 @@ final class RoomScene {
     private struct PanelVisual {
         var arrivedAt: Float = -100
         var glitchAt: Float = -100
+        /// Set once a message's arrival (or an edit, by version) has been animated, so the
+        /// same message seen twice (your send's reply, then its live event) animates once.
+        var animated = false
+        var editAnimated = -1
         var sparkAt: Float = -100
         var version = -1
         var columns = 0
@@ -138,18 +142,39 @@ final class RoomScene {
         speakerOrder = []
     }
 
+    /// Starts a message's arrival: beam from its author, draw-on, written out. Called for
+    /// the live event and when your own send returns, whichever is first; the second is
+    /// ignored rather than restarting it.
+    func messageArrived(_ m: Message) {
+        guard panels[m.id]?.animated != true else { return }
+        let now = AppClock.now
+        var visual = panels[m.id] ?? PanelVisual()
+        visual.arrivedAt = now
+        visual.animated = true
+        panels[m.id] = visual
+        if isLifted { unseen += 1 }
+        for target in m.mentions ?? [] where target != m.author.identity {
+            beams.append(Beam(from: m.author.identity, to: target, at: now + beamTime))
+        }
+    }
+
+    /// Glitches and rewrites an edited message, once per version.
+    func messageEdited(_ m: Message) {
+        guard panels[m.id]?.editAnimated != m.version else { return }
+        let now = AppClock.now
+        panels[m.id, default: PanelVisual()].glitchAt = now
+        panels[m.id]?.arrivedAt = now - beamTime + 0.35   // rewrite once the glitch settles
+        panels[m.id]?.animated = true
+        panels[m.id]?.editAnimated = m.version
+    }
+
     func handle(_ event: Event) {
         let now = AppClock.now
         switch event.payload {
         case .messageCreated(let m):
-            panels[m.id] = PanelVisual(arrivedAt: now)
-            if isLifted { unseen += 1 }
-            for target in m.mentions ?? [] where target != m.author.identity {
-                beams.append(Beam(from: m.author.identity, to: target, at: now + beamTime))
-            }
+            messageArrived(m)
         case .messageEdited(let m):
-            panels[m.id, default: PanelVisual()].glitchAt = now
-            panels[m.id]?.arrivedAt = now - beamTime + 0.35   // rewrite once the glitch settles
+            messageEdited(m)
         case .reactionAdded(let r):
             panels[r.messageId]?.sparkAt = now
         case .memberJoined(let j):

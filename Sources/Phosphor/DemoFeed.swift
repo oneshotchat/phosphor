@@ -85,6 +85,10 @@ final class DemoFeed {
     }
 
     /// Typing in the demo room: plain text, `/react [id] x`, `/edit text`.
+    /// Your own message, sent the way the real server answers: stored and returned at once
+    /// (call `onSent`), with the live event echoing back a moment later.
+    var onSent: ((Message) -> Void)?
+
     func input(_ line: String) {
         let parts = line.split(separator: " ", maxSplits: 2).map(String.init)
         if parts.first == "/react", parts.count >= 2 {
@@ -93,7 +97,7 @@ final class DemoFeed {
         } else if parts.first == "/edit", let id = messages.filter({ ($0.value["author"] as? [String: Any])?["identity"] as? String == me }).keys.max() {
             edit(id, text: String(line.dropFirst(6)))
         } else if !line.hasPrefix("/") {
-            post(from: me, text: line)
+            post(from: me, text: line, asReply: true)
         }
     }
 
@@ -133,13 +137,23 @@ final class DemoFeed {
         }
     }
 
-    private func post(from fp: String, text: String, mentions: [String] = []) {
+    private func post(from fp: String, text: String, mentions: [String] = [], asReply: Bool = false) {
         seq += 1
         var mentioned = mentions
         for case .mention(let target) in MentionText.segments(text) where !mentioned.contains(target) { mentioned.append(target) }
         let dict = message(id: seq, author: people.first { $0.fp == fp }!, text: text, mentions: mentioned)
         messages[seq] = dict
-        emit("message.created", ["message": dict], seq: seq)
+        guard asReply, let sent = Self.decode(Message.self, dict) else {
+            emit("message.created", ["message": dict], seq: seq)
+            return
+        }
+        state.load([sent])
+        onSent?(sent)
+        let id = seq
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            self?.emit("message.created", ["message": dict], seq: id)
+        }
     }
 
     private func react(_ id: Int, _ reaction: String, by fp: String) {

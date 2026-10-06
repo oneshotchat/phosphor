@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.delegate = renderer
         controller.onEvent = { [renderer] room, event in renderer?.handle(event, in: room) }
         controller.onRoomReloaded = { [renderer] room in renderer?.reload(room) }
+        controller.onOwnMessage = { [renderer] room, message, edited in renderer?.ownMessage(message, in: room, edited: edited) }
         controller.onActiveChanged = { [renderer] old, new in renderer?.activeChanged(from: old, to: new) }
 
         window = NSWindow(

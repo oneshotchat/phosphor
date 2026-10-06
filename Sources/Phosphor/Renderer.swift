@@ -404,6 +404,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
     func reload(_ room: String) { scenes[room]?.reset() }
 
+    func ownMessage(_ message: Message, in room: String, edited: Bool) {
+        if edited { scenes[room]?.messageEdited(message) } else { scenes[room]?.messageArrived(message) }
+    }
+
     /// Switching rooms starts the new one at its latest messages.
     func activeChanged(from old: String?, to new: String?) {
         switchedFrom = old

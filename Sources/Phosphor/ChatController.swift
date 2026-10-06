@@ -41,6 +41,9 @@ final class ChatController {
     var onEvent: ((String, Event) -> Void)?
     /// A room's state was replaced wholesale; its scene should drop its animations.
     var onRoomReloaded: ((String) -> Void)?
+    /// Your own message was sent or edited; the reply arrives before (or after) its live
+    /// event, and either way the room animates it once.
+    var onOwnMessage: ((String, Message, _ edited: Bool) -> Void)?
     /// The active room changed (old, new).
     var onActiveChanged: ((String?, String?) -> Void)?
 
@@ -161,6 +164,7 @@ final class ChatController {
         for (name, topic, speakers, pace) in specs {
             let feed = DemoFeed(name: name, topic: topic, me: me, speakers: speakers, pace: pace)
             feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
+            feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
             demos[feed.roomID] = feed
             rooms.append(feed.roomID)
             feed.start()
@@ -266,6 +270,7 @@ final class ChatController {
         if room.access == "invite", (invite ?? "").isEmpty { return note(.error, "#\(room.name) is invite-only") }
         let feed = DemoFeed(name: room.name, topic: room.topic ?? "", me: me, speakers: 2, pace: 3000...8000)
         feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
+        feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
         demos[feed.roomID] = feed
         if !rooms.contains(feed.roomID) { rooms.append(feed.roomID) }
         feed.start()
@@ -301,7 +306,9 @@ final class ChatController {
                 case "/edit", "/sedit":
                     let (target, text) = targetMessage(rest, mine: true)
                     guard let target else { return note(.error, "no message of yours to edit") }
-                    try await session?.edit(target, to: MentionText.compose(text, labels: labels), sign: head == "/sedit")
+                    if let edited = try await session?.edit(target, to: MentionText.compose(text, labels: labels), sign: head == "/sedit") {
+                        onOwnMessage?(edited.room, edited, true)
+                    }
                 case "/react", "/unreact":
                     let (target, reaction) = targetMessage(rest, mine: false)
                     guard let target, !reaction.isEmpty else { return note(.error, "usage: /react [id] 👍") }
@@ -359,7 +366,9 @@ final class ChatController {
 
     private func send(_ text: String, labels: [String: String], sign: Bool) async throws {
         guard let activeRoom else { return note(.error, "not in a room") }
-        try await session?.send(MentionText.compose(text, labels: labels), to: activeRoom, sign: sign)
+        if let sent = try await session?.send(MentionText.compose(text, labels: labels), to: activeRoom, sign: sign) {
+            onOwnMessage?(activeRoom, sent, false)
+        }
     }
 
     /// `[id] rest`: an explicit message id if the first word is one, else the focused
