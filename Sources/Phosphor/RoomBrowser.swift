@@ -23,12 +23,18 @@ final class RoomBrowser {
     enum Prompt: Equatable {
         case key(Target, wrong: Bool)
         case invite(Target, wrong: Bool)
+        /// A display name for an identity that has none yet; `problem` says why the last
+        /// one was refused.
+        case name(problem: String?)
     }
 
     private(set) var isOpen = false
     private(set) var selection = 0
-    /// Asking for a room key or invite code before joining.
+    /// Asking for a room key or invite code before joining, or for your name.
     private(set) var prompt: Prompt?
+    /// Whether the browser was already open when the name prompt came up, so answering it
+    /// goes back to the list instead of closing.
+    private var openBeforeName = false
     private var query = ""
     private let controller: ChatController
 
@@ -54,11 +60,13 @@ final class RoomBrowser {
             if request != prompt, !pending.contains(request) { pending.append(request) }
             return
         }
+        if case .name = request { openBeforeName = isOpen }
         if !isOpen { open() }
         prompt = request
     }
 
     func close() {
+        if case .name = prompt { controller.answerName(nil) }   // closing the browser = Esc
         if !pending.isEmpty {
             prompt = pending.removeFirst()     // the next room still waiting for its key
             return
@@ -69,6 +77,11 @@ final class RoomBrowser {
 
     /// Esc: skip this prompt (on to the next waiting one, else back to the list), then close.
     func cancel() {
+        if case .name = prompt {
+            controller.answerName(nil)
+            finishName()
+            return
+        }
         if prompt != nil { prompt = pending.isEmpty ? nil : pending.removeFirst() } else { close() }
     }
 
@@ -114,9 +127,19 @@ final class RoomBrowser {
         if let prompt {
             let answer = text.trimmingCharacters(in: .whitespaces)
             guard !answer.isEmpty else { return }
+            if case .name = prompt {
+                if let problem = DisplayName.problem(answer) {
+                    self.prompt = .name(problem: problem)
+                } else {
+                    controller.answerName(answer)
+                    finishName()
+                }
+                return
+            }
             switch prompt {
             case .key(let target, _): attempt(target, key: answer)
             case .invite(let target, _): attempt(target, invite: answer)
+            case .name: break
             }
             return
         }
@@ -131,6 +154,18 @@ final class RoomBrowser {
             attempt(Target(name: name, id: nil))
         case nil:
             break
+        }
+    }
+
+    /// Leaves the name prompt: on to the next waiting prompt, back to the list if the
+    /// browser was open before, else closed.
+    private func finishName() {
+        if !pending.isEmpty {
+            prompt = pending.removeFirst()
+        } else if openBeforeName {
+            prompt = nil
+        } else {
+            close()
         }
     }
 
@@ -156,6 +191,8 @@ final class RoomBrowser {
             return (wrong ? "wrong key · " : "") + "key for #\(SafeText.clean(target.name)) › "
         case .invite(let target, let wrong):
             return (wrong ? "that code didn't work · " : "") + "invite code for #\(SafeText.clean(target.name)) › "
+        case .name(let problem):
+            return (problem.map { "\($0) · " } ?? "") + "your name (esc to stay anon) › "
         case nil:
             return "find a room › "
         }

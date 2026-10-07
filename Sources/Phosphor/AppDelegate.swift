@@ -102,6 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Dev: show the first-launch name prompt (nothing is sent in demo mode).
+        if env["PHOSPHOR_ASK_NAME"] != nil { controller.browser.ask(.name(problem: env["PHOSPHOR_NAME_PROBLEM"])) }
+
         // Dev: pre-type into the input ("\n" for new lines).
         if let typed = env["PHOSPHOR_TYPE"] {
             view.devType(typed.replacingOccurrences(of: "\\n", with: "\n"))

@@ -29,7 +29,7 @@ Phosphor opens full screen at the room browser. Pick a room and press Return to 
 
 ## Your identity
 
-On OneShotChat you are an Ed25519 key pair, not an account. Phosphor creates one on first launch at `~/Library/Application Support/Phosphor/default.identity`, readable only by you. Your name's colour, glyph and tripcode come from its fingerprint.
+On OneShotChat you are an Ed25519 key pair, not an account. Phosphor creates one on first launch at `~/Library/Application Support/Phosphor/default.identity`, readable only by you. It then asks for a display name (Esc stays `anon`; `/nick name` changes it later). Names aren't unique: your colour, glyph and tripcode come from the key's fingerprint, which is how people tell you apart.
 
 To use an identity you already have, choose **Phosphor → Use Identity File…**, or launch with `--identity path/to/file`. Keep the file private: anyone who has it can speak as you.
 

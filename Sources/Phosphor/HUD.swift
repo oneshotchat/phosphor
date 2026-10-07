@@ -153,7 +153,11 @@ struct HUD {
         }
         text("ROOMS", 15, theme.accent, 1.3)
         y -= 18 * scale
-        text("type to filter · ↑↓ pick · ⏎ join · esc close", 12, theme.primary, 0.6)
+        if case .name = browser.prompt {
+            text("pick a name first, then a room", 12, theme.primary, 0.6)
+        } else {
+            text("type to filter · ↑↓ pick · ⏎ join · esc close", 12, theme.primary, 0.6)
+        }
         y -= 26 * scale
 
         let entries = browser.entries

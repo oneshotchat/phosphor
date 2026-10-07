@@ -136,6 +136,8 @@ final class ChatController {
                     }
                 }
                 displayName = await client.displayName ?? displayName
+                await chooseNameIfUnset(fingerprint: identity.fingerprint)
+                try Task.checkCancellation()
 
                 let saved = savedRooms
                 let lastActive = UserDefaults.standard.string(forKey: "activeRoom")
@@ -200,6 +202,59 @@ final class ChatController {
         var description: String { message }
     }
 
+    // MARK: display name
+
+    private var nameWaiter: CheckedContinuation<String?, Never>?
+
+    /// Identities that chose to stay anon (Esc at the name prompt), so they aren't asked again.
+    private static let staysAnonKey = "staysAnon"
+
+    /// The server calls you `anon` until you pick a name, so a new identity is asked for one
+    /// before it joins anything.
+    private func chooseNameIfUnset(fingerprint: String) async {
+        guard displayName.isEmpty || displayName == DisplayName.unset,
+              !(UserDefaults.standard.stringArray(forKey: Self.staysAnonKey) ?? []).contains(fingerprint) else { return }
+        note(.info, "pick a name: it's shown with your messages, and you can change it later with /nick")
+        var problem: String?
+        while !Task.isCancelled {
+            let answer = await withCheckedContinuation { waiter in
+                nameWaiter = waiter
+                browser.ask(.name(problem: problem))
+            }
+            guard !Task.isCancelled else { return }
+            guard let name = answer else {
+                UserDefaults.standard.set((UserDefaults.standard.stringArray(forKey: Self.staysAnonKey) ?? []) + [fingerprint],
+                                          forKey: Self.staysAnonKey)
+                return note(.info, "staying anon · /nick name to pick one later")
+            }
+            do {
+                try await session?.client.setName(name)
+                displayName = name
+                rememberName(name)
+                return note(.info, "you're \(SafeText.clean(name))")
+            } catch let error as OSCError {
+                problem = error.message                 // refused: ask again, saying why
+            } catch {
+                return note(.error, "couldn't set your name (\(Self.brief(error))) · try /nick name")
+            }
+        }
+    }
+
+    /// The browser's answer to the name prompt (nil: Esc, stay anon).
+    func answerName(_ name: String?) {
+        nameWaiter?.resume(returning: name)
+        nameWaiter = nil
+    }
+
+    /// Keeps the name as the hint in Phosphor's own identity file, so an exported copy
+    /// carries it. Identity files you chose are never written to.
+    private func rememberName(_ name: String) {
+        guard identityURL == IdentityFile.defaultURL, var file = try? IdentityFile.read(from: identityURL),
+              (try? file.load()) != nil else { return }
+        file.name = name
+        try? file.write(to: identityURL)
+    }
+
     /// Switches to another identity file (nil: Phosphor's own). The file is checked first;
     /// then the current identity logs out (leaving its rooms) and the new one logs in and
     /// rejoins the saved rooms.
@@ -222,6 +277,7 @@ final class ChatController {
         old?.onUpdate = nil
         old?.stop()
         startTask?.cancel()
+        answerName(nil)                                 // a name prompt for the old identity
         // Clear the rooms without touching the saved list, which the new identity rejoins.
         let previous = activeRoom
         rooms = []
@@ -448,8 +504,10 @@ final class ChatController {
                 case "/op", "/deop", "/voice", "/devoice", "/mute", "/unmute", "/ban", "/unban", "/allow", "/kick":
                     try await memberCommand(head, rest, labels: labels)
                 case "/nick":
+                    if let problem = DisplayName.problem(rest) { return note(.error, problem) }
                     try await session?.client.setName(rest)
                     displayName = rest
+                    rememberName(rest)
                 default:
                     if head.hasPrefix("/") { note(.error, "unknown command \(head); /help") } else { try await send(line, labels: labels, sign: signByDefault) }
                 }
