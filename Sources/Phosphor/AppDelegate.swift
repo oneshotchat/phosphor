@@ -106,7 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if env["PHOSPHOR_ASK_NAME"] != nil { controller.browser.ask(.name(problem: env["PHOSPHOR_NAME_PROBLEM"])) }
 
         // Dev: open the help panel ("all" or a topic).
-        if let help = env["PHOSPHOR_HELP"] { controller.help = Help.Topic(rawValue: help).map { .topic($0) } ?? .all }
+        // …after PHOSPHOR_HELP_AT seconds, to catch it opening.
+        if let help = env["PHOSPHOR_HELP"] {
+            let delay = env["PHOSPHOR_HELP_AT"].flatMap(Double.init) ?? 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [controller] in
+                controller.help = Help.Topic(rawValue: help).map { .topic($0) } ?? .all
+            }
+        }
 
         // Dev: pre-type into the input ("\n" for new lines).
         if let typed = env["PHOSPHOR_TYPE"] {
@@ -133,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
-    @objc func toggleHelp(_ sender: Any?) { controller.help = controller.help == .all ? nil : .all }
+    @objc func toggleHelp(_ sender: Any?) { controller.help = controller.help == nil ? .all : nil }
     @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
     @objc func jumpToLatest(_ sender: Any?) { renderer.jumpToLatest() }
     @objc func resetView(_ sender: Any?) { renderer.resetView() }

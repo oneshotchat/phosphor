@@ -232,6 +232,11 @@ final class PhosphorView: MTKView, NSTextInputClient {
             input.acceptCompletion()
         case #selector(deleteBackward(_:)): input.deleteBackward()
         case #selector(deleteForward(_:)): input.deleteForward()
+        // With help open and nothing typed, ←→ move between its walls.
+        case #selector(moveLeft(_:)) where controller?.help != nil && input.text.isEmpty:
+            controller?.pageHelp(-1)
+        case #selector(moveRight(_:)) where controller?.help != nil && input.text.isEmpty:
+            controller?.pageHelp(1)
         case #selector(moveLeft(_:)): input.move(-1)
         case #selector(moveRight(_:)): input.move(1)
         case #selector(moveToBeginningOfLine(_:)), #selector(moveToLeftEndOfLine(_:)): input.moveToStart()

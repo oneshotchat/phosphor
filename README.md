@@ -58,7 +58,7 @@ Scroll up and down to fly along the wall, sideways to orbit, and with ⌥ (or a 
 
 ## Commands
 
-Type `/` to see the commands, each with what it does; Tab takes the highlighted one, and once a command is typed its usage stays above the input. **⌘/** (or `/help`) shows every command and key, and `/help chat`, `rooms`, `mod` or `keys` shows one section. Operator commands are only suggested in rooms where you're an operator. The main ones:
+Type `/` to see the commands, each with what it does; Tab takes the highlighted one, and once a command is typed its usage stays above the input. **⌘/** (or `/help`) brings up help as a row of walls in front of you, one each for chat, rooms, operators and keys: ←→ moves between them, and `/help chat`, `rooms`, `mod` or `keys` goes straight to one. With Reduce Motion on, it's a flat panel instead. Operator commands are only suggested in rooms where you're an operator. The main ones:
 
 - `/join room [key or invite code]`, `/leave`, `/nick name`
 - `/edit [id] text`, `/react [id] 👍`, `/unreact`

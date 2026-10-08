@@ -74,6 +74,13 @@ final class ChatController {
     /// What the help panel shows: everything (⌘/, `/help`) or one topic; nil when closed.
     enum HelpView: Equatable { case all, topic(Help.Topic) }
     var help: HelpView?
+
+    /// ←→ in help: the next or previous topic, stopping at the ends.
+    func pageHelp(_ delta: Int) {
+        let topics = Help.Topic.allCases
+        let current: Int = if case .topic(let t) = help { topics.firstIndex(of: t) ?? 0 } else { 0 }
+        help = .topic(topics[max(0, min(topics.count - 1, current + delta))])
+    }
     var me: String { demoMe ?? session?.me ?? "" }
     var origin: String { session?.client.origin ?? "" }
     var connection: EventSocket.Status { demoMe != nil ? .connected : session?.connection ?? .connecting }
