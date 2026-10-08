@@ -18,7 +18,7 @@ struct RoomInfoScene {
     /// `focus` is the wall the camera is at (fractional while flying); `page` the one
     /// it's going to. `glow` is 0…1 per setting label, for ones that just changed.
     func build(into g: inout FrameGeometry, info: RoomInfo, progress: Float, focus: Float, page: Int,
-               glow: [String: Float], selected: String?, theme: Theme) {
+               glow: [String: Float], selected: String?, peopleFirst: inout Int, theme: Theme) {
         let gain = g.gain
         defer { g.gain = gain }
         for i in 0...1 {
@@ -30,7 +30,8 @@ struct RoomInfoScene {
             if i == 0 {
                 drawRoom(into: &g, info: info, base: Self.base(0), risen: risen, glow: glow, theme: theme)
             } else {
-                drawPeople(into: &g, info: info, base: Self.base(1), risen: risen, selected: selected, theme: theme)
+                drawPeople(into: &g, info: info, base: Self.base(1), risen: risen, selected: selected, first: &peopleFirst,
+                           theme: theme)
             }
         }
     }
@@ -165,9 +166,11 @@ struct RoomInfoScene {
     }
 
     /// The people wall: one list, everyone here first. People who aren't here have a dark
-    /// glyph and a dimmer name. The selected person's row opens to show their fingerprint.
+    /// glyph and a dimmer name. ↑↓ move a highlight down the list; the selected person's
+    /// details (fingerprint and all) show in a strip at the bottom, so the rows never move.
+    /// `first` is the first row shown: the list scrolls only when the selection reaches an edge.
     private func drawPeople(into g: inout FrameGeometry, info: RoomInfo, base: SIMD3<Float>, risen: Float, selected: String?,
-                            theme: Theme) {
+                            first: inout Int, theme: Theme) {
         let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
         let sunk = (1 - risen) * h
         let now = AppClock.now
@@ -181,73 +184,94 @@ struct RoomInfoScene {
             g.text(s, atlas: atlas, origin: base + SIMD3(x, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0], height: height,
                    color: c, intensity: intensity * fade)
         }
+        func rule(_ y: Float, _ from: Float, _ to: Float) {
+            guard visible(y) != nil else { return }
+            g.line(base + SIMD3(from, y - sunk, 0), base + SIMD3(to, y - sunk, 0), theme.primary, intensity: 0.35, width: 1)
+        }
         func width(_ s: String, _ height: Float) -> Float { FrameGeometry.textWidth(s, atlas: atlas, height: height) }
 
         let left = -w + pad, right = w - pad
         let nameX = left + size * 1.3, roleX = left + 4.6, spokeX = left + 6.6
+        let people = info.everyone
+        let here = people.filter(\.isHere).count, others = people.count - here
+        let headingH = size * 0.7, groupGap = lineH * 0.7          // a group's heading, and the space above it
 
-        // Heading, with a count of who's here and who else has been around.
+        // Heading.
         var y = h - pad - size * 1.5
         text("PEOPLE", left, y, size * 1.5, theme.accent, 1.5)
         text("in \(info.name)", left + width("PEOPLE", size * 1.5) + size, y, size, theme.primary, 0.7)
-        let here = info.everyone.filter(\.isHere).count, others = info.everyone.count - here
-        let summary = "\(here) here" + (others > 0 ? " · \(others) more who've been active" : "")
-        text(summary, right - width(summary, size * 0.75), y, size * 0.75, theme.primary, 0.6)
-        y -= lineH * 1.4
-        let headingY = y
-        text("ROLE", roleX, y, size * 0.7, theme.primary, 0.5)
-        text("LAST SPOKE", spokeX, y, size * 0.7, theme.primary, 0.5)
-        y -= lineH * 1.05
 
-        // As many rows as fit, scrolled to keep the selection in view.
-        let selectedIndex = info.everyone.firstIndex { $0.identity == selected }
-        let bottom = pad + size * 0.4
-        let capacity = max(1, Int((y - bottom) / lineH) - (selectedIndex == nil ? 0 : 1) - (others > 0 && here > 0 ? 1 : 0))
-        var first = 0
-        if let i = selectedIndex, info.everyone.count > capacity {
-            first = min(max(0, i - capacity / 2), info.everyone.count - capacity)
+        // The details strip, fixed at the bottom.
+        let stripTop = pad + lineH * 2.1
+        rule(stripTop, left, right)
+        let detailsY = stripTop - lineH * 0.95, fingerprintY = detailsY - lineH * 0.85
+        if let person = people.first(where: { $0.identity == selected }) {
+            drawPerson(person, &g, base: base, x: left, y: detailsY, size: size, sunk: sunk, now: now, theme: theme,
+                       fade: visible(detailsY), maxWidth: roleX - nameX, bright: true, dark: !person.isHere)
+            let status = info.statuses[person.identity].map { $0 == "retired" ? "retired identity" : "\($0) identity" }
+            let facts = [person.isYou ? "you" : nil, person.role.isEmpty ? nil : person.role,
+                         person.isHere ? "here now" : "not here", status].compactMap { $0 }.joined(separator: " · ")
+            text(facts, roleX, detailsY, size * 0.8, theme.accent, 0.9)
+            let small = size * 0.62
+            text(person.identity, nameX, fingerprintY, small, theme.accent, 0.9)
+            text("⌘C copies", right - width("⌘C copies", small), fingerprintY, small, theme.primary, 0.6)
+        } else {
+            text("↑↓ pick someone to see their fingerprint", nameX, detailsY, size * 0.8, theme.primary, 0.45)
         }
-        let shown = info.everyone.dropFirst(first).prefix(capacity)
-        // The heading names the group the list starts in (scrolled past everyone here, that's "not here").
-        let startsHere = shown.first?.isHere ?? true
-        text(startsHere ? "HERE NOW · \(here)" : "NOT HERE · \(others)", nameX, headingY, size * 0.7, theme.primary, 0.6)
-        if first > 0 { text("↑ \(first) more", right - width("↑ \(first) more", size * 0.7), y + lineH * 1.05, size * 0.7, theme.primary, 0.55) }
 
-        var previousHere = shown.first?.isHere ?? true
+        // Rows, on baselines `lineH` apart, between the column headings and the strip. When
+        // the list reaches the people who aren't here, it leaves a gap, a rule and their
+        // heading: about one and a half rows.
+        let listTop = y - lineH * 1.5                   // the column headings' baseline
+        let firstRow = listTop - lineH * 1.05
+        let listBottom = stripTop + lineH * 0.55        // the lowest a row's baseline may be
+        let switchCost = lineH * 1.5
+        let bothGroups = here > 0 && others > 0
+        let roomy = max(1, Int((firstRow - listBottom) / lineH) + 1)
+        let tight = max(1, Int((firstRow - listBottom - (bothGroups ? switchCost : 0)) / lineH) + 1)
+        if let i = people.firstIndex(where: { $0.identity == selected }) {
+            if i < first { first = i }
+            if i >= first + tight { first = i - tight + 1 }
+        }
+        first = max(0, min(first, people.count - tight))
+        // The break between the groups only costs room when it's in view.
+        let breakInView = bothGroups && first < here && here < first + roomy
+        let shown = people.dropFirst(first).prefix(breakInView ? tight : roomy)
+
+        // Column headings; the first group's heading shares their line.
+        let startsHere = shown.first?.isHere ?? true
+        text(startsHere ? "HERE NOW · \(here)" : "NOT HERE · \(others)", nameX, listTop, headingH, theme.primary, 0.6)
+        text("ROLE", roleX, listTop, headingH, theme.primary, 0.5)
+        text("LAST SPOKE", spokeX, listTop, headingH, theme.primary, 0.5)
+        if first > 0 { text("↑ \(first) more", right - width("↑ \(first) more", headingH), listTop, headingH, theme.primary, 0.55) }
+
+        y = firstRow
+        var group = startsHere
         for person in shown {
-            // Where the people who aren't here start: a faint rule and a heading.
-            if previousHere && !person.isHere, visible(y + lineH * 0.6) != nil {
-                g.line(base + SIMD3(nameX, y + lineH * 0.62 - sunk, 0), base + SIMD3(right, y + lineH * 0.62 - sunk, 0),
-                       theme.primary, intensity: 0.35, width: 1)
-                text("NOT HERE · \(others)", nameX, y, size * 0.7, theme.primary, 0.6)
-                y -= lineH * 0.95
+            if person.isHere != group {
+                // A gap below the last row, a rule, then the heading with room under it.
+                rule(y + lineH * 0.45, nameX, right)
+                y -= lineH * 0.35
+                text("NOT HERE · \(others)", nameX, y, headingH, theme.primary, 0.6)
+                y -= lineH * 1.15
+                group = person.isHere
             }
-            previousHere = person.isHere
             let isSelected = person.identity == selected
             if isSelected { text("▸", left - size * 0.9, y, size, theme.accent, 1.5) }
             drawPerson(person, &g, base: base, x: left, y: y, size: size, sunk: sunk, now: now, theme: theme, fade: visible(y),
-                       maxWidth: roleX - nameX - size * 0.5, bright: isSelected, dark: !person.isHere)
-            let dim: Float = person.isHere ? 1 : 0.6
-            let detailColor = isSelected ? theme.accent : theme.primary
-            if !person.role.isEmpty { text(person.role, roleX, y, size * 0.85, detailColor, 0.8 * dim) }
-            text(person.lastSpoke ?? "—", spokeX, y, size * 0.85, detailColor, (person.isHere ? 0.9 : 0.55))
+                       maxWidth: roleX - nameX - size * 1.8, bright: isSelected, dark: !person.isHere)
             if person.isYou {
                 text("you", nameX + min(width(person.label, size), roleX - nameX - size * 1.8) + size * 0.5, y, size * 0.75,
                      theme.primary, 0.5)
             }
+            let detail = isSelected ? theme.accent : theme.primary
+            let dim: Float = person.isHere ? 1 : 0.6
+            if !person.role.isEmpty { text(person.role, roleX, y, size * 0.85, detail, 0.8 * dim) }
+            text(person.lastSpoke ?? "—", spokeX, y, size * 0.85, detail, 0.9 * dim)
             y -= lineH
-            // Selected: the whole fingerprint, whether it's still in use, and how to copy it.
-            if isSelected {
-                let small = size * 0.62
-                text(person.identity, nameX, y + lineH * 0.2, small, theme.accent, 0.9)
-                let status = info.statuses[person.identity].map { $0 == "retired" ? "retired identity" : $0 }
-                let tail = [status, "⌘C copies"].compactMap { $0 }.joined(separator: " · ")
-                text(tail, right - width(tail, small), y + lineH * 0.2, small, theme.primary, 0.6)
-                y -= lineH * 0.8
-            }
         }
-        let rest = info.everyone.count - first - shown.count
-        if rest > 0 { text("↓ \(rest) more", nameX, y + lineH * 0.2, size * 0.7, theme.primary, 0.55) }
+        let rest = people.count - first - shown.count
+        if rest > 0 { text("↓ \(rest) more", right - width("↓ \(rest) more", headingH), y + lineH * 0.2, headingH, theme.primary, 0.55) }
     }
 
     /// A person's glyph, then their name in their colour (cut short to `maxWidth`).

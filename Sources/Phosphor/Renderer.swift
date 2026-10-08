@@ -79,6 +79,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// changes can glow.
     private var infoProgress: Float = 0
     private var infoFocus: Float = 0
+    /// The first row the people wall shows; it scrolls only when the selection reaches an edge.
+    private var peopleFirst = 0
     private var lastInfoPage = 0
     private var wasShowingInfo = false
     private var lastInfo: RoomInfo?
@@ -637,7 +639,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let info = lastInfo else { return }
         let glow = infoChangedAt.mapValues { max(0, 1 - (time - $0) / 2.5) }.filter { $0.value > 0 }
         infoScene.build(into: &g, info: info, progress: infoProgress, focus: infoFocus, page: controller.infoPage,
-                        glow: glow, selected: controller.selectedPerson, theme: theme)
+                        glow: glow, selected: controller.selectedPerson, peopleFirst: &peopleFirst, theme: theme)
     }
 
     /// The overview's rooms you haven't joined: a row in front of the active room. If they
