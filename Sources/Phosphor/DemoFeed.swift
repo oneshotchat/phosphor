@@ -146,6 +146,12 @@ final class DemoFeed {
 
     private var speakerPool: [(fp: String, name: String)] { Array(people.dropFirst().prefix(speakers)) }
 
+    /// People to start the demo's contacts with: someone here, and someone who's left.
+    func contactSeeds() -> [(fp: String, name: String)] {
+        let here = people.prefix(present.count).dropFirst().first { $0.name != "sam" }      // not one of the sams
+        return [here, people.last].compactMap { $0 }
+    }
+
     /// The room's roles, as GET /roles would list them: its operator, and someone voiced
     /// who isn't here.
     var roles: [RoleEntry] {

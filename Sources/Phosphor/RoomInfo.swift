@@ -44,6 +44,7 @@ struct RoomInfo: Equatable {
     /// `roles` is the room's role listing, when it's been fetched.
     /// `identities` are names and statuses looked up by fingerprint, for people the room
     /// itself doesn't name (role holders who aren't here).
+    @MainActor
     init(state: RoomState, me: String, myName: String, signing: Bool, isOperator: Bool, roles: [RoleEntry]?,
          identities: [String: IdentityInfo] = [:], now: Date = Date()) {
         let room = state.room
@@ -89,8 +90,11 @@ struct RoomInfo: Equatable {
         let labels = state.labels
         var authorNames: [String: String] = [:]
         for m in state.orderedMessages { authorNames[m.author.identity] = m.author.name }
+        // Names as shown everywhere: tripcode label, and a contact's petname and mark.
         func label(_ identity: String, _ name: String?) -> String {
-            SafeText.clean(labels[identity] ?? name ?? authorNames[identity] ?? identities[identity]?.name ?? String(identity.prefix(8)))
+            let own = name ?? authorNames[identity] ?? identities[identity]?.name
+            let label = SafeText.clean(labels[identity] ?? own ?? String(identity.prefix(8)))
+            return ContactBook.shared.display(identity, label: label, name: own.map(SafeText.clean))
         }
         here = state.occupants.count
 

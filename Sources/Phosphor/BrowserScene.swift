@@ -48,8 +48,13 @@ struct BrowserScene {
                 let glyphColor = glyph.color(theme: theme)
                 glyph.draw(into: &g, at: left + SIMD3(0, y, 0), size: 0.4, color: glyphColor,
                            intensity: (isSelected ? 1.5 : 1) * alpha, width: 1.5, now: now)
-                var name = SafeText.clean(labels[occupant.identity] ?? occupant.name)
-                if name.count > 14 { name = name.prefix(13) + "…" }     // stay within the room
+                // Stay within the room; a contact keeps their mark (and petname, if it fits).
+                let label = SafeText.clean(labels[occupant.identity] ?? occupant.name)
+                var name = ContactBook.shared.display(occupant.identity, label: label, name: SafeText.clean(occupant.name))
+                if name.count > 18 {
+                    let base = label.count > 14 ? label.prefix(13) + "…" : label
+                    name = ContactBook.shared.isContact(occupant.identity) ? base + " ★" : base
+                }
                 g.text(name, atlas: atlas, origin: left + SIMD3(0.75, y - personSize * 0.35, 0), right: [1, 0, 0], up: [0, 1, 0],
                        height: personSize, color: glyphColor, intensity: (isSelected ? 1.3 : 0.85) * alpha)
             }

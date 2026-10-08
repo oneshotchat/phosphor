@@ -38,6 +38,7 @@ final class RoomScene {
         var sparkAt: Float = -100
         var version = -1
         var columns = 0
+        var contacts = -1
         var lines: [String] = []
         /// Verifying Ed25519 every frame for every message adds up; once per version is enough.
         var signature: (version: Int, status: Message.SignatureStatus)?
@@ -217,7 +218,7 @@ final class RoomScene {
             newestVisible = nil
             return
         }
-        let labels = state.labels
+        let labels = ContactBook.shared.display(state.labels)        // contacts get their petname and mark
         let ease = min(1, dt * 8)
 
         // Everyone present gets a visual; the departed linger while they animate out.
@@ -225,7 +226,10 @@ final class RoomScene {
             if people[fp] == nil || people[fp]?.leftAt != nil {
                 people[fp] = makePerson(fp, name: occupant.name, joinedAt: people[fp]?.leftAt != nil ? now : -100)
             }
-            people[fp]?.name = labels[fp] ?? occupant.name
+            // Under a glyph there's only room for the name: a contact gets their mark, and
+            // their petname shows on their messages.
+            let short = state.labels[fp] ?? occupant.name
+            people[fp]?.name = ContactBook.shared.isContact(fp) ? short + " ★" : short
         }
         people = people.filter { fp, p in state.occupants[fp] != nil || (p.leftAt.map { now - $0 < 2.5 } ?? false) }
 
@@ -556,12 +560,14 @@ final class RoomScene {
     /// Display text wrapped to `maxWidth`. Cached per message version and width.
     private func lines(for m: Message, labels: [String: String], maxWidth: Float) -> [String] {
         let columns = Int(maxWidth / max(textWidth("M", height: textHeight), 0.01))
-        if let v = panels[m.id], v.version == m.version, v.columns == columns, !v.lines.isEmpty { return v.lines }
+        if let v = panels[m.id], v.version == m.version, v.columns == columns, v.contacts == ContactBook.shared.revision,
+           !v.lines.isEmpty { return v.lines }
         let text = SafeText.clean(MentionText.display(m.text) { labels[$0] ?? String($0.prefix(8)) })
         let wrapped = wrap(text, columns: columns)
         panels[m.id, default: PanelVisual()].lines = wrapped
         panels[m.id]?.version = m.version
         panels[m.id]?.columns = columns
+        panels[m.id]?.contacts = ContactBook.shared.revision        // mentions show contacts' petnames
         return wrapped
     }
 

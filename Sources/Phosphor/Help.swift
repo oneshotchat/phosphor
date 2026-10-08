@@ -37,6 +37,9 @@ enum Help {
         Command(name: "/edit", args: "[id] text", summary: "edit your selected or latest message", topic: .chat),
         Command(name: "/sedit", args: "[id] text", summary: "edit it, signed", topic: .chat),
         Command(name: "/sign", args: "text", summary: "send one message signed", topic: .chat),
+        Command(name: "/contact", args: "[@who] [petname]", summary: "save someone, or rename them (⌘S on a people wall)", topic: .chat),
+        Command(name: "/uncontact", args: "[@who]", summary: "forget a contact", topic: .chat),
+        Command(name: "/contacts", args: "", summary: "people you've saved (⌘K)", topic: .chat),
         Command(name: "/unsigned", args: "text", summary: "send one message unsigned", topic: .chat),
 
         Command(name: "/topic", args: "[text]", summary: "set the topic (nothing clears it)", topic: .mod),
@@ -62,6 +65,7 @@ enum Help {
         ("⌘L", "room browser"),
         ("⌘← ⌘→  ·  ⌘1–9", "switch rooms"),
         ("⌘I  ·  ⌘W", "room info  ·  leave room"),
+        ("⌘K  ·  ⌘S", "contacts  ·  save someone"),
         ("⌘C", "copy a fingerprint, on room info"),
         ("⌘G", "ring or row layout"),
         ("⌘R", "reading mode"),

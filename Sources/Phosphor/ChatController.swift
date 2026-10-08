@@ -74,7 +74,7 @@ final class ChatController {
     /// What the help panel shows: everything (⌘/, `/help`) or one topic; nil when closed.
     enum HelpView: Equatable { case all, topic(Help.Topic) }
     var help: HelpView? {
-        didSet { if help != nil { showingRoomInfo = false } }
+        didSet { if help != nil { showingRoomInfo = false; showingContacts = false } }
     }
 
     /// The room info walls (/room, ⌘I): the room's settings, and beside it its people.
@@ -83,12 +83,147 @@ final class ChatController {
         didSet {
             guard showingRoomInfo else { return }
             help = nil
+            showingContacts = false
             if !oldValue { infoPage = 0; selectedPerson = nil }
             if let activeRoom { refreshRoles(activeRoom) }
         }
     }
     /// 0: the room, 1: its people.
     var infoPage = 0
+
+    // MARK: contacts
+
+    /// The contacts wall (⌘K, /contacts): yours, not the room's, so it stands alone.
+    var showingContacts = false {
+        didSet {
+            guard showingContacts else { return }
+            help = nil
+            showingRoomInfo = false
+            if !oldValue { selectedContact = nil }
+            noteSightings()
+            lookUp(ContactBook.shared.contacts.values.filter { $0.name == nil }.map(\.fingerprint))
+        }
+    }
+    var selectedContact: String?
+
+    /// One row of the contacts wall.
+    struct ContactRow: Equatable {
+        var identity: String
+        var label: String
+        var petname: String?
+        /// Where they are now, as far as we can know: rooms you're in, then listed rooms.
+        var whereNow: [String]
+        var lastSeen: String?
+        var lastSeenRoom: String?
+    }
+
+    /// Everyone saved, those visible somewhere first, then by when you last saw them.
+    var contactRows: [ContactRow] {
+        let book = ContactBook.shared
+        return book.contacts.values.map { c in
+            let name = c.name ?? identities[c.fingerprint]?.name ?? String(c.fingerprint.prefix(8))
+            let whereNow = roomsWith(c.fingerprint)
+            return ContactRow(identity: c.fingerprint, label: book.display(c.fingerprint, label: SafeText.clean(name)),
+                              petname: c.petname, whereNow: whereNow,
+                              lastSeen: whereNow.isEmpty ? c.lastSeen.map { RoomInfo.ago(-$0.timeIntervalSinceNow) } : "now",
+                              lastSeenRoom: c.lastSeenRoom)
+        }
+        .sorted {
+            if $0.whereNow.isEmpty != $1.whereNow.isEmpty { return !$0.whereNow.isEmpty }
+            let a = book.contact($0.identity)?.lastSeen ?? .distantPast, b = book.contact($1.identity)?.lastSeen ?? .distantPast
+            return a != b ? a > b : $0.label.lowercased() < $1.label.lowercased()
+        }
+    }
+
+    /// Rooms someone is in that we can see: the ones you're in, then listed rooms (whose
+    /// occupants the public listing shows). Unlisted rooms you aren't in can't be seen.
+    func roomsWith(_ fingerprint: String) -> [String] {
+        var found: [String] = []
+        var seen = Set<String>()
+        for room in rooms {
+            guard let s = state(room), s.occupants[fingerprint] != nil else { continue }
+            found.append("#" + SafeText.clean(s.room.name))
+            seen.insert(s.room.id)
+        }
+        for room in listed where !seen.contains(room.id) && room.occupants?.contains(where: { $0.identity == fingerprint }) == true {
+            found.append("#" + SafeText.clean(room.name) + " (listed)")
+        }
+        return found
+    }
+
+    /// Records where contacts are seen, so "last seen" means something later.
+    func noteSightings() {
+        let book = ContactBook.shared
+        guard !book.contacts.isEmpty else { return }
+        for room in rooms {
+            guard let s = state(room) else { continue }
+            for o in s.occupants.values where book.isContact(o.identity) { book.saw(o.identity, in: "#" + s.room.name, name: o.name) }
+        }
+        for room in listed {
+            for o in room.occupants ?? [] where book.isContact(o.identity) { book.saw(o.identity, in: "#" + room.name, name: o.name) }
+        }
+    }
+
+    func moveContactSelection(_ delta: Int) {
+        let rows = contactRows
+        guard !rows.isEmpty else { return }
+        let i = rows.firstIndex { $0.identity == selectedContact }.map { $0 + delta } ?? (delta > 0 ? 0 : rows.count - 1)
+        selectedContact = rows.indices.contains(i) ? rows[i].identity : nil
+        if let selectedContact { lookUp([selectedContact]) }
+    }
+
+    /// ⌘S on the people wall: save the selected person (no petname yet).
+    func saveSelectedPerson() {
+        guard showingRoomInfo, infoPage == 1, let fp = selectedPerson else {
+            return note(.info, "pick someone on a room's people wall (⌘I, then →) to save them")
+        }
+        saveContact(fp, petname: nil)
+    }
+
+    private func saveContact(_ fp: String, petname: String?) {
+        let occupant = rooms.lazy.compactMap { self.state($0)?.occupants[fp] }.first
+        let name = occupant?.name ?? identities[fp]?.name ?? state?.orderedMessages.last(where: { $0.author.identity == fp })?.author.name
+        let known = ContactBook.shared.isContact(fp)
+        ContactBook.shared.save(fp, petname: petname, name: name, seenIn: occupant != nil ? state.map { "#" + $0.room.name } : nil)
+        let shown = SafeText.clean(name ?? String(fp.prefix(8)))
+        if let petname, !petname.isEmpty {
+            note(.info, "\(shown) saved as \(SafeText.clean(petname)) ★")
+        } else {
+            note(.info, known ? "\(shown): petname cleared" : "\(shown) saved as a contact ★ · /contact name gives them a petname")
+        }
+    }
+
+    /// `/contact [@who | fingerprint] [petname]` and `/uncontact [@who | fingerprint]`.
+    /// Without @who, the person picked on the people or contacts wall.
+    private func contactCommand(_ head: String, _ rest: String, labels: [String: String]) {
+        let (first, more) = split(rest.trimmingCharacters(in: .whitespaces))
+        var target: String?
+        var petname = rest.trimmingCharacters(in: .whitespaces)
+        if first.hasPrefix("@") {
+            let label = String(first.dropFirst())
+            guard let fp = labels[label] else { return note(.error, "no one called @\(label) here (type @ to pick someone)") }
+            target = fp
+            petname = more
+        } else if Identity.isFingerprint(first) {
+            target = first
+            petname = more
+        } else if showingContacts, let selectedContact {
+            target = selectedContact
+        } else if showingRoomInfo, infoPage == 1, let selectedPerson {
+            target = selectedPerson
+        }
+        guard let target else {
+            return note(.error, "\(head) @who\(head == "/contact" ? " [petname]" : ""), or pick someone on a people wall first")
+        }
+        if head == "/uncontact" {
+            guard ContactBook.shared.isContact(target) else { return note(.error, "they aren't a contact") }
+            ContactBook.shared.remove(target)
+            if selectedContact == target { selectedContact = nil }
+            return note(.info, "contact removed")
+        }
+        if let problem = petname.isEmpty ? nil : DisplayName.problem(petname) { return note(.error, "petname: \(problem)") }
+        saveContact(target, petname: petname)
+    }
 
     /// ←→ on the info walls.
     func pageInfo(_ delta: Int) { infoPage = max(0, min(1, infoPage + delta)) }
@@ -106,6 +241,7 @@ final class ChatController {
 
     /// The fingerprint ⌘C copies with the info walls up: the selected person's, else the room's.
     var fingerprintToCopy: String? {
+        if showingContacts { return selectedContact }
         guard showingRoomInfo, let info = roomInfo else { return nil }
         if infoPage == 1, let selectedPerson { return selectedPerson }
         return info.roomID
@@ -113,6 +249,8 @@ final class ChatController {
 
     /// Names and statuses looked up by fingerprint (GET /v1/identities), kept for the session.
     private var identities: [String: IdentityInfo] = [:]
+    /// Looked-up statuses (`active`, `retired`) by fingerprint.
+    var identityStatuses: [String: String] { identities.compactMapValues(\.status) }
     private var lookingUp: Set<String> = []
 
     private func lookUp(_ fingerprints: [String]) {
@@ -120,7 +258,12 @@ final class ChatController {
         for fp in fingerprints where identities[fp] == nil && !lookingUp.contains(fp) {
             lookingUp.insert(fp)
             Task {
-                if let info = try? await client.identity(fp) { identities[fp] = info }
+                if let info = try? await client.identity(fp) {
+                    identities[fp] = info
+                    if let name = info.name, ContactBook.shared.isContact(fp), ContactBook.shared.contact(fp)?.name == nil {
+                        ContactBook.shared.save(fp, petname: nil, name: name)
+                    }
+                }
                 lookingUp.remove(fp)
             }
         }
@@ -410,6 +553,20 @@ final class ChatController {
         }
         activate(rooms[0])
         listed = DemoFeed.listing()
+        // Demo contacts live in memory only: someone here under a petname, someone who's
+        // left, and someone in a listed room.
+        var seeds: [ContactBook.Contact] = []
+        if let lobby = demos[rooms[0]] {
+            for (i, person) in lobby.contactSeeds().enumerated() {
+                seeds.append(.init(fingerprint: person.fp, petname: i == 0 ? person.name.capitalized + " from work" : nil, name: person.name,
+                                   added: Date(), lastSeen: Date().addingTimeInterval(-Double(i) * 7200), lastSeenRoom: "#lobby"))
+            }
+        }
+        if let elsewhere = listed.first, let o = elsewhere.occupants?.first {
+            seeds.append(.init(fingerprint: o.identity, petname: nil, name: o.name, added: Date(),
+                               lastSeen: Date(), lastSeenRoom: "#" + elsewhere.name))
+        }
+        ContactBook.shared.useInMemory(seed: seeds)
         note(.info, "demo mode · offline")
     }
 
@@ -490,6 +647,7 @@ final class ChatController {
             }
             listed = all
             listedAt = Date()
+            noteSightings()
         } catch {
             note(.error, "couldn't load the room list: \(error)")
         }
@@ -546,6 +704,9 @@ final class ChatController {
             }
             return help = .topic(topic)
         }
+        // Contacts are local: they work the same live or in the demo.
+        if head == "/contacts" { return showingContacts = true }
+        if head == "/contact" || head == "/uncontact" { return contactCommand(head, rest, labels: labels) }
         if head == "/room", rest.trimmingCharacters(in: .whitespaces).isEmpty {
             guard state != nil else { return note(.error, "not in a room") }
             return showingRoomInfo = true
@@ -833,6 +994,13 @@ final class ChatController {
                 if m.mentions?.contains(me) == true { activity[room, default: Activity()].mentioned = true }
             }
             if case .memberRoleChanged = event.payload, roomRoles[room] != nil { refreshRoles(room) }
+            switch event.payload {
+            case .memberJoined(let j) where ContactBook.shared.isContact(j.identity):
+                ContactBook.shared.saw(j.identity, in: "#" + (state(room)?.room.name ?? "?"), name: j.name)
+            case .messageCreated(let m) where ContactBook.shared.isContact(m.author.identity):
+                ContactBook.shared.saw(m.author.identity, in: "#" + (state(room)?.room.name ?? "?"), name: m.author.name)
+            default: break
+            }
             onEvent?(room, event)
         case .reloaded(let room):
             onRoomReloaded?(room)

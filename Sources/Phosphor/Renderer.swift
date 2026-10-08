@@ -81,6 +81,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var infoFocus: Float = 0
     /// The first row the people wall shows; it scrolls only when the selection reaches an edge.
     private var peopleFirst = 0
+    /// The contacts wall, in the same spot: how far risen, and its first row shown.
+    private var contactsProgress: Float = 0
+    private var contactsFirst = 0
+    private var wasShowingContacts = false
     private var lastInfoPage = 0
     private var wasShowingInfo = false
     private var lastInfo: RoomInfo?
@@ -315,6 +319,20 @@ final class Renderer: NSObject, MTKViewDelegate {
             desiredEye = view.eye
             desiredTarget = view.target
         }
+        // Contacts: one wall in the same spot, the same flight.
+        let showingContacts = controller.showingContacts && !controller.browser.isOpen
+        if showingContacts != wasShowingContacts {
+            wasShowingContacts = showingContacts
+            helpMovedAt = time
+            if showingContacts {
+                ripples.append(FrameGeometry.Ripple(center: RoomInfoScene.base(0), radius: HelpScene.wallWidth / 2,
+                                                    startedAt: time, strength: 0.28))
+            }
+        }
+        if showingContacts {
+            desiredEye = RoomInfoScene.view(0).eye
+            desiredTarget = RoomInfoScene.view(0).target
+        }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
         // Ease slowly in and out of reading mode and the browser; otherwise follow closely.
         if controller.browser.isOpen != wasBrowsing {
@@ -366,18 +384,24 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         // The help panel dims the world behind it; so, less, does the list of commands.
         let showingCommands = phosphorView.map { $0.input.completionKind == .command && !$0.input.completions.isEmpty } ?? false
-        let dimTarget: Float = controller.browser.isOpen ? 0 : showingInfo ? 0.93 : controller.help != nil ? (Self.helpIn3D ? 0.88 : 0.985)
+        let dimTarget: Float = controller.browser.isOpen ? 0 : showingInfo || showingContacts ? 0.93 : controller.help != nil ? (Self.helpIn3D ? 0.88 : 0.985)
             : showingCommands ? 0.88 : 0
         helpFade += (dimTarget - helpFade) * min(1, dt * 12)
         if helpFade > 0.01 {
             let keep = 1 - helpFade
             // Rooms dim; with help in the world the floor stays, so the walls stand on it.
-            let helpWalls = (controller.help != nil && Self.helpIn3D) || showingInfo
+            let helpWalls = (controller.help != nil && Self.helpIn3D) || showingInfo || showingContacts
             for i in (helpWalls ? floorLines : 0)..<geometry.lines.count { geometry.lines[i].color.w *= keep }
             for i in (helpWalls ? floorGlyphs : 0)..<geometry.glyphs.count { geometry.glyphs[i].color.w *= keep }
         }
         buildHelp(into: &geometry, dt: dt, helping: helping)
         buildInfo(into: &geometry, dt: dt, showing: showingInfo, time: time)
+        contactsProgress = simd_clamp(contactsProgress + (showingContacts ? dt / 0.5 : -dt / 0.35), 0, 1)
+        if contactsProgress > 0 {
+            infoScene.buildContacts(into: &geometry, rows: controller.contactRows, progress: contactsProgress,
+                                    selected: controller.selectedContact, statuses: controller.identityStatuses,
+                                    first: &contactsFirst, theme: theme)
+        }
 
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()

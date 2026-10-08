@@ -38,7 +38,7 @@ struct RoomInfoScene {
 
     /// The wall's frame rising from its slot in the floor, and its name on the floor in front.
     private func drawFrame(into g: inout FrameGeometry, base: SIMD3<Float>, risen: Float, label: String, selected: Bool,
-                           theme: Theme) {
+                           theme: Theme, hint customHint: String? = nil) {
         let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
         let color = selected ? theme.accent : theme.primary
         g.line(base - SIMD3(w, 0, 0), base + SIMD3(w, 0, 0), color, intensity: selected ? 1.8 : 1.1, width: 2)
@@ -52,8 +52,8 @@ struct RoomInfoScene {
         g.text(label, atlas: atlas, origin: base + SIMD3(-nameWidth / 2, 0.03, 1.1 + nameSize), right: [1, 0, 0],
                up: [0, 0, -1], height: nameSize, color: color, intensity: (selected ? 1.6 : 0.8) * max(0.3, risen))
         if selected {
-            let hint = label == "PEOPLE" ? "↑↓ pick someone  ·  ← room  ·  esc closes"
-                                         : "→ people  ·  ⌘C copies fingerprint  ·  esc closes"
+            let hint = customHint ?? (label == "PEOPLE" ? "↑↓ pick someone  ·  ⌘S saves  ·  ← room  ·  esc closes"
+                                                        : "→ people  ·  ⌘C copies fingerprint  ·  esc closes")
             let hw = FrameGeometry.textWidth(hint, atlas: atlas, height: 0.5)
             g.text(hint, atlas: atlas, origin: base + SIMD3(-hw / 2, 0.03, 2.1 + nameSize + 0.5), right: [1, 0, 0],
                    up: [0, 0, -1], height: 0.5, color: theme.primary, intensity: 0.7 * risen)
@@ -293,9 +293,10 @@ struct RoomInfoScene {
     /// `s`, cut short with "…" to fit in `room`.
     private func cut(_ s: String, _ height: Float, _ room: Float) -> String {
         guard FrameGeometry.textWidth(s, atlas: atlas, height: height) > room else { return s }
-        var t = s
-        while !t.isEmpty, FrameGeometry.textWidth(t + "…", atlas: atlas, height: height) > room { t.removeLast() }
-        return t + "…"
+        let mark = s.hasSuffix(" ★") ? " ★" : ""                // a contact keeps their mark
+        var t = String(s.dropLast(mark.count))
+        while !t.isEmpty, FrameGeometry.textWidth(t + "…" + mark, atlas: atlas, height: height) > room { t.removeLast() }
+        return t + "…" + mark
     }
 
     /// A person's glyph, then their name in their colour (cut short to `maxWidth`).
@@ -312,5 +313,104 @@ struct RoomInfoScene {
         g.text(label, atlas: atlas, origin: base + SIMD3(x + size * 1.2, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0],
                height: size, color: dark && !bright ? simd_mix(color, theme.primary, SIMD3(repeating: 0.6)) : color,
                intensity: (bright ? 1.6 : dark ? 0.4 : 1.1) * fade)
+    }
+}
+
+// MARK: - contacts
+
+extension RoomInfoScene {
+    /// The contacts wall (⌘K): your saved people, not the room's, standing alone where the
+    /// room info stands. Those visible somewhere now come first, with a bright glyph and
+    /// the rooms they're in (yours, and listed rooms); the rest have a dark glyph and when
+    /// you last saw them. ↑↓ pick someone for the details strip at the bottom.
+    func buildContacts(into g: inout FrameGeometry, rows: [ChatController.ContactRow], progress: Float, selected: String?,
+                       statuses: [String: String], first: inout Int, theme: Theme) {
+        let risen = HelpScene.rise(0, progress: progress, focus: 0)
+        guard risen > 0.001 else { return }
+        let base = Self.base(0)
+        drawFrame(into: &g, base: base, risen: risen, label: "CONTACTS", selected: true, theme: theme,
+                  hint: "↑↓ pick someone  ·  ⌘C copies  ·  esc closes")
+
+        let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
+        let sunk = (1 - risen) * h
+        let now = AppClock.now
+        let pad: Float = 0.65, size: Float = 0.34, lineH = size * 1.5, headingH = size * 0.7
+        func visible(_ y: Float) -> Float? {
+            let above = y - sunk
+            return above > 0.05 ? min(1, above / 0.8) : nil
+        }
+        func text(_ s: String, _ x: Float, _ y: Float, _ height: Float, _ c: SIMD3<Float>, _ intensity: Float) {
+            guard let fade = visible(y) else { return }
+            g.text(s, atlas: atlas, origin: base + SIMD3(x, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0], height: height,
+                   color: c, intensity: intensity * fade)
+        }
+        func width(_ s: String, _ height: Float) -> Float { FrameGeometry.textWidth(s, atlas: atlas, height: height) }
+        let left = -w + pad, right = w - pad
+        let nameX = left + size * 1.3, whereX = left + 4.2, seenX = left + 8.25
+
+        var y = h - pad - size * 1.5
+        text("CONTACTS", left, y, size * 1.5, theme.accent, 1.5)
+        let note = "saved on this Mac only"
+        text(note, right - width(note, size * 0.7), y, size * 0.7, theme.primary, 0.45)
+
+        // The details strip, fixed at the bottom.
+        let stripTop = pad + lineH * 2.1
+        g.line(base + SIMD3(left, stripTop - sunk, 0), base + SIMD3(right, stripTop - sunk, 0), theme.primary,
+               intensity: visible(stripTop) == nil ? 0 : 0.35, width: 1)
+        let detailsY = stripTop - lineH * 0.95, fingerprintY = detailsY - lineH * 0.85
+        if let row = rows.first(where: { $0.identity == selected }) {
+            let status = statuses[row.identity].map { $0 == "retired" ? "retired identity" : $0 }
+            let seen = row.whereNow.isEmpty
+                ? row.lastSeen.map { "last seen \($0)" + (row.lastSeenRoom.map { " in \($0)" } ?? "") } ?? "not seen yet"
+                : "here now"
+            let facts = [seen, status].compactMap { $0 }.joined(separator: " · ")
+            let factsSize = fitted(facts, size * 0.8, right - whereX)
+            let factsWidth = width(facts, factsSize)
+            drawPerson(RoomInfo.Person(identity: row.identity, label: row.label), &g, base: base, x: left, y: detailsY, size: size,
+                       sunk: sunk, now: now, theme: theme, fade: visible(detailsY), maxWidth: right - factsWidth - nameX - size,
+                       bright: true, dark: row.whereNow.isEmpty)
+            text(facts, right - factsWidth, detailsY, factsSize, theme.accent, 0.9)
+            let small = size * 0.62
+            text(row.identity, nameX, fingerprintY, small, theme.accent, 0.9)
+        } else if rows.isEmpty {
+            text("save someone from a room's people wall (⌘I, →, ↑↓, ⌘S)", nameX, detailsY, size * 0.8, theme.primary, 0.5)
+        } else {
+            text("↑↓ pick someone to see their fingerprint", nameX, detailsY, size * 0.8, theme.primary, 0.45)
+        }
+
+        // Rows, scrolling only when the selection reaches an edge.
+        let listTop = y - lineH * 1.5
+        let firstRow = listTop - lineH * 1.05
+        let listBottom = stripTop + lineH * 0.55
+        let capacity = max(1, Int((firstRow - listBottom) / lineH) + 1)
+        if let i = rows.firstIndex(where: { $0.identity == selected }) {
+            if i < first { first = i }
+            if i >= first + capacity { first = i - capacity + 1 }
+        }
+        first = max(0, min(first, rows.count - capacity))
+        let shown = rows.dropFirst(first).prefix(capacity)
+
+        text("NAME", nameX, listTop, headingH, theme.primary, 0.5)
+        text("WHERE NOW", whereX, listTop, headingH, theme.primary, 0.5)
+        text("LAST SEEN", seenX, listTop, headingH, theme.primary, 0.5)
+        if first > 0 { text("↑ \(first) more", right - width("↑ \(first) more", headingH), listTop + lineH * 0.6, headingH, theme.primary, 0.55) }
+        if rows.isEmpty { text("nobody yet", nameX, firstRow, size * 0.9, theme.primary, 0.45) }
+
+        y = firstRow
+        for row in shown {
+            let isSelected = row.identity == selected
+            let away = row.whereNow.isEmpty
+            if isSelected { text("▸", left - size * 0.9, y, size, theme.accent, 1.5) }
+            drawPerson(RoomInfo.Person(identity: row.identity, label: row.label), &g, base: base, x: left, y: y, size: size,
+                       sunk: sunk, now: now, theme: theme, fade: visible(y), maxWidth: whereX - nameX - size * 0.6,
+                       bright: isSelected, dark: away)
+            let detail = isSelected ? theme.accent : theme.primary
+            let rooms = away ? "—" : cut(row.whereNow.joined(separator: ", "), size * 0.85, seenX - whereX - size * 0.6)
+            text(rooms, whereX, y, size * 0.85, detail, away ? 0.5 : 0.9)
+            text(row.lastSeen ?? "—", seenX, y, size * 0.85, detail, away ? 0.6 : 0.9)
+            y -= lineH
+        }
+        let rest = rows.count - first - shown.count
+        if rest > 0 { text("↓ \(rest) more", right - width("↓ \(rest) more", headingH), y + lineH * 0.2, headingH, theme.primary, 0.55) }
     }
 }

@@ -116,6 +116,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Dev: show the contacts wall after PHOSPHOR_CONTACTS_AT seconds, with PHOSPHOR_CONTACTS_SELECT picked.
+        if let at = env["PHOSPHOR_CONTACTS_AT"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [controller] in
+                controller.showingContacts = true
+                for _ in 0..<(env["PHOSPHOR_CONTACTS_SELECT"].flatMap(Int.init) ?? 0) { controller.moveContactSelection(1) }
+            }
+        }
+
         // Dev: open the help panel ("all" or a topic).
         // …after PHOSPHOR_HELP_AT seconds, to catch it opening.
         if let help = env["PHOSPHOR_HELP"] {
@@ -161,6 +169,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSPasteboard.general.setString(fingerprint, forType: .string)
         controller.note(.info, "copied \(fingerprint.prefix(12))…")
     }
+    @objc func toggleContacts(_ sender: Any?) { controller.showingContacts.toggle() }
+    /// ⌘S on the people wall: save the selected person as a contact.
+    @objc func saveContact(_ sender: Any?) { controller.saveSelectedPerson() }
     @objc func toggleRoomInfo(_ sender: Any?) {
         if !controller.showingRoomInfo, controller.state == nil { return controller.note(.error, "not in a room") }
         controller.showingRoomInfo.toggle()
@@ -224,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q"),
         ])
         submenu("Edit", [item("Copy Fingerprint", #selector(copyFingerprint(_:)), "c", target: self),
+                         item("Save as Contact", #selector(saveContact(_:)), "s", target: self),
                          item("Paste", #selector(PhosphorView.paste(_:)), "v")])
         submenu("View", [
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),
@@ -243,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         submenu("Rooms", [
             item("Room Browser", #selector(toggleBrowser(_:)), "l", target: self),
             item("Room Info", #selector(toggleRoomInfo(_:)), "i", target: self),
+            item("Contacts", #selector(toggleContacts(_:)), "k", target: self),
             item("Leave Room", #selector(leaveRoom(_:)), "w", target: self),
             NSMenuItem.separator(),
             item("Next Room", #selector(nextRoom(_:)), arrow(NSRightArrowFunctionKey), target: self),

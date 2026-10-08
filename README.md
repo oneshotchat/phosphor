@@ -33,6 +33,8 @@ On OneShotChat you are an Ed25519 key pair, not an account. Phosphor creates one
 
 To use an identity you already have, choose **Phosphor → Use Identity File…**, or launch with `--identity path/to/file`. Keep the file private: anyone who has it can speak as you.
 
+Names aren't unique and a tripcode is easy to imitate, so to recognise someone over time, save them as a contact: pick them on a room's people wall (⌘I, then →, then ↑↓) and press ⌘S, or type `/contact @who [petname]`. Contacts are kept by full fingerprint, on your Mac only, and show everywhere with a ★, plus your petname in brackets if it differs from their name: `neo (Jared) ★`. ⌘K shows them all, with the rooms they're in now (yours, and listed rooms) and when you last saw them.
+
 Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed rooms are saved in your login keychain, so those rooms rejoin after a restart.
 
 ## Keys
@@ -45,6 +47,7 @@ Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed 
 | ⌘L | Room browser (↑↓ or ←→ to choose, Return to join, Esc to close) |
 | ⌘← / ⌘→, ⌘1–⌘9 | Switch rooms |
 | ⌘I | Room info, and beside it the room's people (←→); also `/room` |
+| ⌘K | Contacts |
 | ⌘W | Leave room |
 | ⌘G | Ring or row layout |
 | ⌘R | Reading mode |
