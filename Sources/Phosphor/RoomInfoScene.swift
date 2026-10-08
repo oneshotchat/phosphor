@@ -38,7 +38,7 @@ struct RoomInfoScene {
 
         // Layout in "lines", scaled down to fit if an operator's extra lines need it.
         let showChange = info.isOperator
-        let lineCount = 2.3 + (info.topic == nil ? 0 : 1) + Float(info.settings.count) * (showChange ? 1.75 : 1.15) + 0.6 + 4 * 1.15
+        let lineCount = 3.2 + (info.topic == nil ? 0 : 1) + Float(info.settings.count) * (showChange ? 1.75 : 1.15) + 0.6 + 4 * 1.15
         let pad: Float = 0.65
         let size = min(0.38, (h - pad * 2) / lineCount / 1.3)
         let lineH = size * 1.3
@@ -65,9 +65,11 @@ struct RoomInfoScene {
         let used = lineCount * lineH
         var y = min(h - pad, (h + used) / 2) - size * 1.5
         text(info.name, left, y, size * 1.5, theme.accent, 1.5)
-        let lifeSize = size * 0.7
-        text(info.lifetime, w - pad - width(info.lifetime, lifeSize), y, lifeSize, theme.primary, 0.6)
-        y -= lineH * 1.1
+        // How long the room has been and will be around, on its own line: beside the name
+        // it collides with long names.
+        y -= lineH * 0.95
+        text(info.lifetime, left, y, size * 0.72, theme.primary, 0.6)
+        y -= lineH
         if let topic = info.topic {
             var shown = topic
             while width(shown, size * 0.8) > w * 2 - pad * 2, !shown.isEmpty { shown.removeLast() }
