@@ -454,3 +454,18 @@ struct RoleList: Decodable {
         }
     }
 }
+
+/// `GET /v1/identities/{fingerprint}`: someone's current name and status. It never says
+/// which rooms they're in.
+public struct IdentityInfo: Codable, Sendable, Equatable {
+    public var id: String?
+    public var name: String?
+    /// `active` or `retired`.
+    public var status: String?
+
+    public init(id: String? = nil, name: String? = nil, status: String? = nil) {
+        self.id = id
+        self.name = name
+        self.status = status
+    }
+}

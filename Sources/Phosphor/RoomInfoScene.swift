@@ -18,20 +18,19 @@ struct RoomInfoScene {
     /// `focus` is the wall the camera is at (fractional while flying); `page` the one
     /// it's going to. `glow` is 0…1 per setting label, for ones that just changed.
     func build(into g: inout FrameGeometry, info: RoomInfo, progress: Float, focus: Float, page: Int,
-               glow: [String: Float], theme: Theme) {
+               glow: [String: Float], selected: String?, theme: Theme) {
         let gain = g.gain
         defer { g.gain = gain }
         for i in 0...1 {
             let risen = HelpScene.rise(i, progress: progress, focus: focus)
             guard risen > 0.001 else { continue }
             g.gain = gain * max(0.35, 1 - abs(Float(i) - focus) * 0.65)     // the far wall dimmer
-            let selected = i == page
-            drawFrame(into: &g, base: Self.base(i), risen: risen, label: i == 0 ? info.name : "PEOPLE", selected: selected,
+            drawFrame(into: &g, base: Self.base(i), risen: risen, label: i == 0 ? info.name : "PEOPLE", selected: i == page,
                       theme: theme)
             if i == 0 {
                 drawRoom(into: &g, info: info, base: Self.base(0), risen: risen, glow: glow, theme: theme)
             } else {
-                drawPeople(into: &g, info: info, base: Self.base(1), risen: risen, theme: theme)
+                drawPeople(into: &g, info: info, base: Self.base(1), risen: risen, selected: selected, theme: theme)
             }
         }
     }
@@ -52,7 +51,8 @@ struct RoomInfoScene {
         g.text(label, atlas: atlas, origin: base + SIMD3(-nameWidth / 2, 0.03, 1.1 + nameSize), right: [1, 0, 0],
                up: [0, 0, -1], height: nameSize, color: color, intensity: (selected ? 1.6 : 0.8) * max(0.3, risen))
         if selected {
-            let hint = "←→ room · people  ·  esc closes"
+            let hint = label == "PEOPLE" ? "↑↓ pick someone  ·  ← room  ·  esc closes"
+                                         : "→ people  ·  ⌘C copies fingerprint  ·  esc closes"
             let hw = FrameGeometry.textWidth(hint, atlas: atlas, height: 0.5)
             g.text(hint, atlas: atlas, origin: base + SIMD3(-hw / 2, 0.03, 2.1 + nameSize + 0.5), right: [1, 0, 0],
                    up: [0, 0, -1], height: 0.5, color: theme.primary, intensity: 0.7 * risen)
@@ -67,7 +67,7 @@ struct RoomInfoScene {
 
         // Layout in "lines", scaled down to fit if an operator's extra lines need it.
         let showChange = info.isOperator
-        let lineCount = 3.2 + (info.topic == nil ? 0 : 1) + Float(info.settings.count) * (showChange ? 1.75 : 1.15) + 0.6 + 4 * 1.15
+        let lineCount = 4.0 + (info.topic == nil ? 0 : 1) + Float(info.settings.count) * (showChange ? 1.75 : 1.15) + 0.6 + 4 * 1.15
         let pad: Float = 0.65
         let size = min(0.38, (h - pad * 2) / lineCount / 1.3)
         let lineH = size * 1.3
@@ -98,6 +98,9 @@ struct RoomInfoScene {
         // it collides with long names.
         y -= lineH * 0.95
         text(info.lifetime, left, y, size * 0.72, theme.primary, 0.6)
+        y -= lineH * 0.8
+        // The room's fingerprint: its name can change hands, this can't.
+        text("fingerprint  " + info.roomID, left, y, size * 0.6, theme.primary, 0.45)
         y -= lineH
         if let topic = info.topic {
             var shown = topic
@@ -163,7 +166,8 @@ struct RoomInfoScene {
 
     /// The people wall: everyone here on the left; on the right, people with a role who
     /// aren't here, then who spoke recently but isn't here.
-    private func drawPeople(into g: inout FrameGeometry, info: RoomInfo, base: SIMD3<Float>, risen: Float, theme: Theme) {
+    private func drawPeople(into g: inout FrameGeometry, info: RoomInfo, base: SIMD3<Float>, risen: Float, selected: String?,
+                            theme: Theme) {
         let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
         let sunk = (1 - risen) * h
         let now = AppClock.now
@@ -203,12 +207,27 @@ struct RoomInfoScene {
                         y -= lineH
                         break
                     }
+                    let isSelected = person.identity == selected
+                    if isSelected { text("▸", x - size * 0.9, y, size, theme.accent, 1.5) }
+                    // Selected, the note also says whether the identity is still in use, and how to copy it.
+                    let status = isSelected ? info.statuses[person.identity].map { $0 == "retired" ? "retired" : $0 } : nil
+                    let note = isSelected ? ([person.note, status ?? ""].filter { !$0.isEmpty } + ["⌘C copies"]).joined(separator: " · ")
+                                          : person.note
                     drawPerson(person, &g, base: base, x: x, y: y, size: size, sunk: sunk, now: now, theme: theme, fade: visible(y),
-                               maxWidth: columnWidth - width(person.note, size * 0.8) - size * 2)
-                    if !person.note.isEmpty {
-                        text(person.note, x + columnWidth - width(person.note, size * 0.8), y, size * 0.8, theme.primary, 0.55)
+                               maxWidth: columnWidth - width(note, size * 0.8) - size * 2, bright: isSelected)
+                    if !note.isEmpty {
+                        text(note, x + columnWidth - width(note, size * 0.8), y, size * 0.8,
+                             isSelected ? theme.accent : theme.primary, isSelected ? 1 : 0.55)
                     }
                     y -= lineH
+                    // Selected: their whole fingerprint, in two halves, and whether it's still in use.
+                    if isSelected {
+                        let fp = person.identity, half = fp.count / 2
+                        let small = size * 0.62
+                        text(String(fp.prefix(half)), x + size * 1.2, y + lineH * 0.25, small, theme.accent, 0.9)
+                        text(String(fp.dropFirst(half)), x + size * 1.2, y - lineH * 0.25, small, theme.accent, 0.9)
+                        y -= lineH * 1.1
+                    }
                 }
                 y -= lineH * 0.6
             }
@@ -220,7 +239,8 @@ struct RoomInfoScene {
 
     /// A person's glyph, then their name in their colour (cut short to `maxWidth`).
     private func drawPerson(_ person: RoomInfo.Person, _ g: inout FrameGeometry, base: SIMD3<Float>, x: Float, y: Float,
-                            size: Float, sunk: Float, now: Float, theme: Theme, fade: Float?, maxWidth: Float = .infinity) {
+                            size: Float, sunk: Float, now: Float, theme: Theme, fade: Float?, maxWidth: Float = .infinity,
+                            bright: Bool = false) {
         guard let fade else { return }
         let glyph = IdentityGlyph(fingerprint: person.identity)
         let color = glyph.color(theme: theme)
@@ -232,6 +252,6 @@ struct RoomInfoScene {
             label += "…"
         }
         g.text(label, atlas: atlas, origin: base + SIMD3(x + size * 1.2, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0],
-               height: size, color: color, intensity: 1.1 * fade)
+               height: size, color: color, intensity: (bright ? 1.6 : 1.1) * fade)
     }
 }

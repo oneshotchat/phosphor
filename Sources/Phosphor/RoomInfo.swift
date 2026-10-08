@@ -19,6 +19,7 @@ struct RoomInfo: Equatable {
     }
 
     var name: String
+    var roomID: String
     var topic: String?
     var lifetime: String
     var settings: [Row]
@@ -34,11 +35,20 @@ struct RoomInfo: Equatable {
     var present: [Person]
     var absentRoles: [Person]
     var recent: [Person]
+    /// Everyone on the people wall, in order, for ↑↓.
+    var everyone: [Person] { present + absentRoles + recent }
+    /// Looked-up status (`active`, `retired`) by fingerprint, when known.
+    var statuses: [String: String]
 
     /// `roles` is the room's role listing, when it's been fetched.
-    init(state: RoomState, me: String, myName: String, signing: Bool, isOperator: Bool, roles: [RoleEntry]?, now: Date = Date()) {
+    /// `identities` are names and statuses looked up by fingerprint, for people the room
+    /// itself doesn't name (role holders who aren't here).
+    init(state: RoomState, me: String, myName: String, signing: Bool, isOperator: Bool, roles: [RoleEntry]?,
+         identities: [String: IdentityInfo] = [:], now: Date = Date()) {
         let room = state.room
         name = "#" + SafeText.clean(room.name)
+        roomID = room.id
+        statuses = identities.compactMapValues(\.status)
         topic = room.topic.map(SafeText.clean).flatMap { $0.isEmpty ? nil : $0.replacingOccurrences(of: "\n", with: " ") }
 
         var life: [String] = []
@@ -79,7 +89,7 @@ struct RoomInfo: Equatable {
         var authorNames: [String: String] = [:]
         for m in state.orderedMessages { authorNames[m.author.identity] = m.author.name }
         func label(_ identity: String, _ name: String?) -> String {
-            SafeText.clean(labels[identity] ?? name ?? authorNames[identity] ?? String(identity.prefix(8)))
+            SafeText.clean(labels[identity] ?? name ?? authorNames[identity] ?? identities[identity]?.name ?? String(identity.prefix(8)))
         }
         here = state.occupants.count
 

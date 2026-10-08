@@ -230,8 +230,11 @@ final class DemoFeed {
 
     /// Room id for a demo room name, the same way `init` makes it, so a listed room and the
     /// feed that serves it once joined share an id.
+    /// A made-up fingerprint that looks like a real one (26 base32 characters), the same
+    /// for a name every time.
     static func roomID(_ name: String) -> String {
-        String((name + String(repeating: "0", count: 26)).prefix(26)).lowercased()
+        var rng = SplitMix64(string: "room:" + name)
+        return String(Base32.encode((0..<20).map { _ in UInt8.random(in: 0...255, using: &rng) }).prefix(26))
     }
 
     /// Made-up display names. A few repeat on purpose, so tripcodes show up.

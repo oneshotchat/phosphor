@@ -227,6 +227,14 @@ private func makeClient() throws -> OSCClient {
         #expect(bare == [RoleEntry(identity: "ghi", role: .voice)])
     }
 
+    @Test func identityLookup() async throws {
+        StubServer.reset(loginReplies + [.init(json: #"{"id":"wu4yxnhl","name":"angus","status":"active"}"#)])
+        let client = try makeClient()
+        let info = try await client.identity("wu4yxnhl")
+        #expect(StubServer.seen.last!.path == "/v1/identities/wu4yxnhl")
+        #expect(info == IdentityInfo(id: "wu4yxnhl", name: "angus", status: "active"))
+    }
+
     @MainActor @Test func leavingReportsTheRoomName() async throws {
         let room = #"{"room":{"id":"r1","name":"secret","latest_seq":5},"role":null,"created":false}"#
         StubServer.reset(loginReplies + [

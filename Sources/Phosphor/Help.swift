@@ -62,6 +62,7 @@ enum Help {
         ("⌘L", "room browser"),
         ("⌘← ⌘→  ·  ⌘1–9", "switch rooms"),
         ("⌘I  ·  ⌘W", "room info  ·  leave room"),
+        ("⌘C", "copy a fingerprint, on room info"),
         ("⌘G", "ring or row layout"),
         ("⌘R", "reading mode"),
         ("⌘↓  ·  ⌘0", "latest  ·  reset view"),

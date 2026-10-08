@@ -245,6 +245,11 @@ final class PhosphorView: MTKView, NSTextInputClient {
         case #selector(moveRight(_:)): input.move(1)
         case #selector(moveToBeginningOfLine(_:)), #selector(moveToLeftEndOfLine(_:)): input.moveToStart()
         case #selector(moveToEndOfLine(_:)), #selector(moveToRightEndOfLine(_:)): input.moveToEnd()
+        // On the people wall, ↑↓ pick someone (when nothing's being completed).
+        case #selector(moveUp(_:)) where controller?.showingRoomInfo == true && controller?.infoPage == 1 && input.completions.isEmpty:
+            controller?.movePersonSelection(-1)
+        case #selector(moveDown(_:)) where controller?.showingRoomInfo == true && controller?.infoPage == 1 && input.completions.isEmpty:
+            controller?.movePersonSelection(1)
         case #selector(moveUp(_:)):
             if input.completions.isEmpty { controller?.moveFocus(-1) } else { input.cycleCompletion(-1) }
         case #selector(moveDown(_:)):
@@ -258,6 +263,8 @@ final class PhosphorView: MTKView, NSTextInputClient {
                 input.updateCompletions(labels: [])
             } else if controller?.help != nil {
                 controller?.help = nil
+            } else if controller?.showingRoomInfo == true, controller?.selectedPerson != nil {
+                controller?.selectedPerson = nil
             } else if controller?.showingRoomInfo == true {
                 controller?.showingRoomInfo = false
             } else if controller?.focus != nil {

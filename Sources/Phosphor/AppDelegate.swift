@@ -110,6 +110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) { [controller] in
                 controller.showingRoomInfo = true
                 if env["PHOSPHOR_INFO_PAGE"] == "1" { controller.pageInfo(1) }      // …on the people wall
+                if let n = env["PHOSPHOR_INFO_SELECT"].flatMap(Int.init) {             // …with someone picked
+                    for _ in 0..<n { controller.movePersonSelection(1) }
+                }
             }
         }
 
@@ -151,6 +154,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
+    /// ⌘C with the info walls up: the selected person's fingerprint, else the room's.
+    @objc func copyFingerprint(_ sender: Any?) {
+        guard let fingerprint = controller.fingerprintToCopy else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(fingerprint, forType: .string)
+        controller.note(.info, "copied \(fingerprint.prefix(12))…")
+    }
     @objc func toggleRoomInfo(_ sender: Any?) {
         if !controller.showingRoomInfo, controller.state == nil { return controller.note(.error, "not in a room") }
         controller.showingRoomInfo.toggle()
@@ -213,7 +223,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSMenuItem.separator(),
             item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q"),
         ])
-        submenu("Edit", [item("Paste", #selector(PhosphorView.paste(_:)), "v")])
+        submenu("Edit", [item("Copy Fingerprint", #selector(copyFingerprint(_:)), "c", target: self),
+                         item("Paste", #selector(PhosphorView.paste(_:)), "v")])
         submenu("View", [
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),
             item("Jump to Latest", #selector(jumpToLatest(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), target: self),

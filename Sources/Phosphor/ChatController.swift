@@ -83,7 +83,7 @@ final class ChatController {
         didSet {
             guard showingRoomInfo else { return }
             help = nil
-            if !oldValue { infoPage = 0 }
+            if !oldValue { infoPage = 0; selectedPerson = nil }
             if let activeRoom { refreshRoles(activeRoom) }
         }
     }
@@ -93,13 +93,50 @@ final class ChatController {
     /// ←→ on the info walls.
     func pageInfo(_ delta: Int) { infoPage = max(0, min(1, infoPage + delta)) }
 
+    /// The person picked with ↑↓ on the people wall: their full fingerprint shows, and
+    /// ⌘C copies it.
+    var selectedPerson: String?
+
+    func movePersonSelection(_ delta: Int) {
+        guard let people = roomInfo?.everyone, !people.isEmpty else { return }
+        let i = people.firstIndex { $0.identity == selectedPerson }.map { $0 + delta } ?? (delta > 0 ? 0 : people.count - 1)
+        selectedPerson = people.indices.contains(i) ? people[i].identity : nil
+        if let selectedPerson { lookUp([selectedPerson]) }        // for their status
+    }
+
+    /// The fingerprint ⌘C copies with the info walls up: the selected person's, else the room's.
+    var fingerprintToCopy: String? {
+        guard showingRoomInfo, let info = roomInfo else { return nil }
+        if infoPage == 1, let selectedPerson { return selectedPerson }
+        return info.roomID
+    }
+
+    /// Names and statuses looked up by fingerprint (GET /v1/identities), kept for the session.
+    private var identities: [String: IdentityInfo] = [:]
+    private var lookingUp: Set<String> = []
+
+    private func lookUp(_ fingerprints: [String]) {
+        guard demoMe == nil, let client = session?.client else { return }
+        for fp in fingerprints where identities[fp] == nil && !lookingUp.contains(fp) {
+            lookingUp.insert(fp)
+            Task {
+                if let info = try? await client.identity(fp) { identities[fp] = info }
+                lookingUp.remove(fp)
+            }
+        }
+    }
+
     /// Each room's role listing, fetched when its info wall opens and when a role changes.
     private var roomRoles: [String: [RoleEntry]] = [:]
 
     private func refreshRoles(_ room: String) {
         guard demoMe == nil, let client = session?.client else { return }
         Task {
-            if let roles = try? await client.roles(room: room) { roomRoles[room] = roles }
+            guard let roles = try? await client.roles(room: room) else { return }
+            roomRoles[room] = roles
+            // People with a role who aren't here may have no name we know: ask.
+            let known = Set(state(room)?.occupants.keys.map { $0 } ?? []).union(state(room)?.orderedMessages.map(\.author.identity) ?? [])
+            lookUp(roles.filter { $0.name == nil && !known.contains($0.identity) }.map(\.identity))
         }
     }
 
@@ -107,7 +144,7 @@ final class ChatController {
     var roomInfo: RoomInfo? {
         guard let state, let activeRoom else { return nil }
         return RoomInfo(state: state, me: me, myName: displayName, signing: signByDefault, isOperator: isOperator,
-                        roles: roomRoles[activeRoom])
+                        roles: roomRoles[activeRoom], identities: identities)
     }
 
     /// ←→ in help: the next or previous topic, stopping at the ends.
