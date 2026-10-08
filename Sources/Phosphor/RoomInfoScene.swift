@@ -94,7 +94,7 @@ struct RoomInfoScene {
         // Name and lifetime, then the topic; the whole block centred on the wall.
         let used = lineCount * lineH
         var y = min(h - pad, (h + used) / 2) - size * 1.5
-        text(info.name, left, y, size * 1.5, theme.accent, 1.5)
+        text(info.name, left, y, fitted(info.name, size * 1.5, w * 2 - pad * 2), theme.accent, 1.5)
         // How long the room has been and will be around, on its own line: beside the name
         // it collides with long names.
         y -= lineH * 0.95
@@ -156,8 +156,10 @@ struct RoomInfoScene {
             mine.draw(into: &g, at: base + SIMD3(iconX, y - sunk + size * 0.35, 0), size: size * 0.5, color: myColor,
                       intensity: 1.2 * fade, width: 1.3, now: now)
         }
-        text(info.you.label, valueX, y, size, myColor, 1.1)
-        text("  ·  \(info.youAre)", valueX + width(info.you.label, size), y, size, theme.primary, 0.9)
+        let youAre = "  ·  \(info.youAre)"
+        let myLabel = cut(info.you.label, size, w - pad - valueX - width(youAre, size))
+        text(myLabel, valueX, y, size, myColor, 1.1)
+        text(youAre, valueX + width(myLabel, size), y, size, theme.primary, 0.9)
         y -= lineH * 1.15
 
         icon(info.signing ? .pen : .penCrossed, iconX, y, 1.3)
@@ -199,19 +201,25 @@ struct RoomInfoScene {
         // Heading.
         var y = h - pad - size * 1.5
         text("PEOPLE", left, y, size * 1.5, theme.accent, 1.5)
-        text("in \(info.name)", left + width("PEOPLE", size * 1.5) + size, y, size, theme.primary, 0.7)
+        let inX = left + width("PEOPLE", size * 1.5) + size
+        text("in \(info.name)", inX, y, fitted("in \(info.name)", size, right - inX), theme.primary, 0.7)
 
         // The details strip, fixed at the bottom.
         let stripTop = pad + lineH * 2.1
         rule(stripTop, left, right)
         let detailsY = stripTop - lineH * 0.95, fingerprintY = detailsY - lineH * 0.85
         if let person = people.first(where: { $0.identity == selected }) {
-            drawPerson(person, &g, base: base, x: left, y: detailsY, size: size, sunk: sunk, now: now, theme: theme,
-                       fade: visible(detailsY), maxWidth: roleX - nameX, bright: true, dark: !person.isHere)
-            let status = info.statuses[person.identity].map { $0 == "retired" ? "retired identity" : "\($0) identity" }
+            // Name on the left, facts right-aligned; the facts get at least the right half
+            // and shrink to fit it, and the name is cut short to fit what's left.
+            let status = info.statuses[person.identity].map { $0 == "retired" ? "retired identity" : $0 }
             let facts = [person.isYou ? "you" : nil, person.role.isEmpty ? nil : person.role,
                          person.isHere ? "here now" : "not here", status].compactMap { $0 }.joined(separator: " · ")
-            text(facts, roleX, detailsY, size * 0.8, theme.accent, 0.9)
+            let factsRoom = max(right - roleX, right - nameX - width(person.label, size) - size)
+            let factsSize = min(size * 0.8, size * 0.8 * factsRoom / max(0.01, width(facts, size * 0.8)))
+            let factsWidth = width(facts, factsSize)
+            drawPerson(person, &g, base: base, x: left, y: detailsY, size: size, sunk: sunk, now: now, theme: theme,
+                       fade: visible(detailsY), maxWidth: right - factsWidth - nameX - size, bright: true, dark: !person.isHere)
+            text(facts, right - factsWidth, detailsY, factsSize, theme.accent, 0.9)
             let small = size * 0.62
             text(person.identity, nameX, fingerprintY, small, theme.accent, 0.9)
             text("⌘C copies", right - width("⌘C copies", small), fingerprintY, small, theme.primary, 0.6)
@@ -258,11 +266,13 @@ struct RoomInfoScene {
             }
             let isSelected = person.identity == selected
             if isSelected { text("▸", left - size * 0.9, y, size, theme.accent, 1.5) }
+            // The name stops short of the role column, leaving room for "you" after yours.
+            let youWidth = person.isYou ? width("you", size * 0.75) + size * 0.5 : 0
+            let nameRoom = roleX - nameX - size * 0.6 - youWidth
             drawPerson(person, &g, base: base, x: left, y: y, size: size, sunk: sunk, now: now, theme: theme, fade: visible(y),
-                       maxWidth: roleX - nameX - size * 1.8, bright: isSelected, dark: !person.isHere)
+                       maxWidth: nameRoom, bright: isSelected, dark: !person.isHere)
             if person.isYou {
-                text("you", nameX + min(width(person.label, size), roleX - nameX - size * 1.8) + size * 0.5, y, size * 0.75,
-                     theme.primary, 0.5)
+                text("you", nameX + min(width(person.label, size), nameRoom) + size * 0.4, y, size * 0.75, theme.primary, 0.5)
             }
             let detail = isSelected ? theme.accent : theme.primary
             let dim: Float = person.isHere ? 1 : 0.6
@@ -272,6 +282,20 @@ struct RoomInfoScene {
         }
         let rest = people.count - first - shown.count
         if rest > 0 { text("↓ \(rest) more", right - width("↓ \(rest) more", headingH), y + lineH * 0.2, headingH, theme.primary, 0.55) }
+    }
+
+    /// The text height at which `s` fits in `room`, no bigger than `height`.
+    private func fitted(_ s: String, _ height: Float, _ room: Float) -> Float {
+        let w = FrameGeometry.textWidth(s, atlas: atlas, height: height)
+        return w > room ? height * room / w : height
+    }
+
+    /// `s`, cut short with "…" to fit in `room`.
+    private func cut(_ s: String, _ height: Float, _ room: Float) -> String {
+        guard FrameGeometry.textWidth(s, atlas: atlas, height: height) > room else { return s }
+        var t = s
+        while !t.isEmpty, FrameGeometry.textWidth(t + "…", atlas: atlas, height: height) > room { t.removeLast() }
+        return t + "…"
     }
 
     /// A person's glyph, then their name in their colour (cut short to `maxWidth`).
@@ -284,11 +308,7 @@ struct RoomInfoScene {
         // Someone who isn't here: a dark glyph, standing still, and a dimmer name.
         glyph.draw(into: &g, at: base + SIMD3(x + size * 0.45, y - sunk + size * 0.35, 0), size: size * 0.45,
                    color: color, intensity: (dark ? 0.16 : 1.2) * fade, width: 1.3, now: dark ? 0 : now)
-        var label = person.label
-        if FrameGeometry.textWidth(label, atlas: atlas, height: size) > maxWidth {
-            while !label.isEmpty, FrameGeometry.textWidth(label + "…", atlas: atlas, height: size) > maxWidth { label.removeLast() }
-            label += "…"
-        }
+        let label = cut(person.label, size, maxWidth)
         g.text(label, atlas: atlas, origin: base + SIMD3(x + size * 1.2, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0],
                height: size, color: dark && !bright ? simd_mix(color, theme.primary, SIMD3(repeating: 0.6)) : color,
                intensity: (bright ? 1.6 : dark ? 0.4 : 1.1) * fade)
