@@ -112,6 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [controller] in
                 controller.help = Help.Topic(rawValue: help).map { .topic($0) } ?? .all
             }
+            // …and step to the next wall after PHOSPHOR_HELP_PAGE_AT seconds.
+            if let page = env["PHOSPHOR_HELP_PAGE_AT"].flatMap(Double.init) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + page) { [controller] in controller.pageHelp(1) }
+            }
         }
 
         // Dev: pre-type into the input ("\n" for new lines).

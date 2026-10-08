@@ -74,13 +74,14 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let hud: HUD
     private let browserScene: BrowserScene
     private let helpScene: HelpScene
-    /// Help in the world: the view it opened from, how far open it is, and which wall is
-    /// centred (fractional while sliding). With Reduce Motion on, the flat HUD panel instead.
-    private var helpFrame: HelpScene.Frame?
+    /// Help in the world: how far its walls have risen, which wall the camera is at
+    /// (fractional while flying between them), and when it last opened, closed or moved
+    /// on. With Reduce Motion on, the flat HUD panel instead.
     private var helpProgress: Float = 0
-    private var helpScroll: Float = 0
-    private var helpToggledAt: Float = -100
+    private var helpFocus: Float = 0
+    private var helpMovedAt: Float = -100
     private var wasHelping = false
+    private var lastHelpIndex = 0
     static var helpIn3D: Bool { !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     /// Where each unjoined room stands in the overview this frame (as a room origin); a
     /// room joined from there starts from that spot.
@@ -262,24 +263,26 @@ final class Renderer: NSObject, MTKViewDelegate {
             desiredEye = panel.center + panel.normal * max(4, fitWidth, fitHeight)
             desiredTarget = panel.center
         }
-        // Help: hold the view it opened from, backed off a little so the walls fit.
+        // Help: fly to the wall being read; ←→ fly along the row.
         let helping = controller.help != nil && !controller.browser.isOpen && Self.helpIn3D
-        if helping != wasHelping {
-            wasHelping = helping
-            helpToggledAt = time
-            if helping, helpFrame == nil {
-                // Before the first frame there's no view yet: use the camera's.
-                let from = hasCamera ? eye : camera.eye, to = hasCamera ? lookTarget : camera.center
-                let forward = simd_normalize(to - from)
-                var right = simd_cross(forward, [0, 1, 0])
-                right = simd_length(right) < 0.01 ? [1, 0, 0] : simd_normalize(right)
-                helpFrame = HelpScene.Frame(eye: from, forward: forward, right: right, up: simd_cross(right, forward))
-                helpScroll = Float(helpIndex)
+        if helping != wasHelping || (helping && helpIndex != lastHelpIndex) {
+            if helping, !wasHelping {
+                helpFocus = Float(helpIndex)
+                // Each wall breaks the floor as it rises, the one you asked for first.
+                for i in Help.Topic.allCases.indices {
+                    let delay = 0.13 * abs(Float(i - helpIndex)) / 1.4 * 0.35
+                    ripples.append(FrameGeometry.Ripple(center: HelpScene.base(i), radius: HelpScene.wallWidth / 2,
+                                                        startedAt: time + delay, strength: 0.28))
+                }
             }
+            wasHelping = helping
+            lastHelpIndex = helpIndex
+            helpMovedAt = time
         }
-        if helping, let frame = helpFrame {
-            desiredEye = frame.eye - frame.forward * HelpScene.Frame.pullBack
-            desiredTarget = frame.eye + frame.forward * HelpScene.Frame.distance
+        if helping {
+            let view = HelpScene.view(Float(helpIndex))
+            desiredEye = view.eye
+            desiredTarget = view.target
         }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
         // Ease slowly in and out of reading mode and the browser; otherwise follow closely.
@@ -287,7 +290,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             wasBrowsing = controller.browser.isOpen
             readingToggledAt = time
         }
-        let rate: Float = time - helpToggledAt < 0.6 ? 9
+        let rate: Float = time - helpMovedAt < 1 ? 6
             : readingMode || controller.browser.isOpen || time - readingToggledAt < 1.2 ? 3 : 14
         let ease = SIMD3(repeating: min(1, dt * rate))
         eye = simd_mix(eye, desiredEye, ease)
@@ -306,6 +309,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         arrangeRooms(dt: dt, time: time)
         ripples.removeAll { time - $0.startedAt > FrameGeometry.Ripple.duration }
         geometry.floorGrid(theme: theme, ripples: ripples, time: time)
+        let floorLines = geometry.lines.count, floorGlyphs = geometry.glyphs.count
         if let lift = pendingSnapshotLift, time > 1.5 {
             camera.liftTarget = lift
             pendingSnapshotLift = nil
@@ -331,13 +335,15 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         // The help panel dims the world behind it; so, less, does the list of commands.
         let showingCommands = phosphorView.map { $0.input.completionKind == .command && !$0.input.completions.isEmpty } ?? false
-        let dimTarget: Float = controller.browser.isOpen ? 0 : controller.help != nil ? (Self.helpIn3D ? 0.96 : 0.985)
+        let dimTarget: Float = controller.browser.isOpen ? 0 : controller.help != nil ? (Self.helpIn3D ? 0.88 : 0.985)
             : showingCommands ? 0.88 : 0
         helpFade += (dimTarget - helpFade) * min(1, dt * 12)
         if helpFade > 0.01 {
             let keep = 1 - helpFade
-            for i in geometry.lines.indices { geometry.lines[i].color.w *= keep }
-            for i in geometry.glyphs.indices { geometry.glyphs[i].color.w *= keep }
+            // Rooms dim; with help in the world the floor stays, so the walls stand on it.
+            let helpWalls = controller.help != nil && Self.helpIn3D
+            for i in (helpWalls ? floorLines : 0)..<geometry.lines.count { geometry.lines[i].color.w *= keep }
+            for i in (helpWalls ? floorGlyphs : 0)..<geometry.glyphs.count { geometry.glyphs[i].color.w *= keep }
         }
         buildHelp(into: &geometry, dt: dt, helping: helping)
 
@@ -379,8 +385,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         // once, and full trails turn the switch into a smear.
         let rearranging = 1 - smoothstep(0.6, 1.6, time - roomsMovedAt)
         // Help walls in motion leave no trails either: the text would smear into echoes.
-        let helpMoving = helpFrame != nil && (helpProgress < 1 || abs(helpScroll - Float(helpIndex)) > 0.02)
-        var decay = powf(simd_mix(0.55, 0.8, effects) * (1 - 0.35 * rearranging) * (helpMoving ? 0.15 : 1), dt * 60)
+        let helpMoving = 1 - smoothstep(0.5, 1.1, time - helpMovedAt)
+        var decay = powf(simd_mix(0.55, 0.8, effects) * (1 - 0.35 * rearranging) * (1 - 0.6 * helpMoving), dt * 60)
         if let enc = pass(cb, current, clear: false) {
             enc.setRenderPipelineState(persistPipeline)
             enc.setFragmentTexture(sceneTexture, index: 0)
@@ -580,12 +586,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
 
     private func buildHelp(into g: inout FrameGeometry, dt: Float, helping: Bool) {
-        // Open in about a third of a second; close a little faster.
-        helpProgress = simd_clamp(helpProgress + (helping ? dt / 0.35 : -dt / 0.3), 0, 1)
-        guard let frame = helpFrame else { return }
-        guard helpProgress > 0 else { return helpFrame = nil }
-        helpScroll += (Float(helpIndex) - helpScroll) * min(1, dt * 10)
-        helpScene.build(into: &g, frame: frame, progress: helpProgress, scroll: helpScroll, selected: helpIndex,
+        // Rise in about half a second, as the camera arrives; sink a little faster.
+        helpProgress = simd_clamp(helpProgress + (helping ? dt / 0.5 : -dt / 0.35), 0, 1)
+        helpFocus += (Float(helpIndex) - helpFocus) * min(1, dt * 6)      // with the camera
+        helpScene.build(into: &g, progress: helpProgress, focus: helpFocus, selected: helpIndex,
                         isOperator: controller.isOperator, theme: theme)
     }
 
