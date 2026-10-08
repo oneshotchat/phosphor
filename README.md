@@ -44,6 +44,7 @@ Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed 
 | Tab | Accept a completion, such as an `@name` |
 | ⌘L | Room browser (↑↓ or ←→ to choose, Return to join, Esc to close) |
 | ⌘← / ⌘→, ⌘1–⌘9 | Switch rooms |
+| ⌘I | Room info: settings, operators, you (also `/room`) |
 | ⌘W | Leave room |
 | ⌘G | Ring or row layout |
 | ⌘R | Reading mode |

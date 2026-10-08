@@ -50,13 +50,18 @@ final class DemoFeed {
         people = [(me, myName)] + names.map { (Identity.generate().fingerprint, $0) }
         present = Set(people.prefix(9).map(\.fp))
 
-        let occupants = people.prefix(9).map { ["identity": $0.fp, "name": $0.name, "role": NSNull()] as [String: Any] }
+        // Someone runs each room; in #dev it's you, so the demo shows an operator's view too.
+        let operatorFP = name == "dev" ? me : people[3].fp
+        let occupants = people.prefix(9).map {
+            ["identity": $0.fp, "name": $0.name, "role": $0.fp == operatorFP ? "operator" : NSNull()] as [String: Any]
+        }
         let room: [String: Any] = [
             "id": roomID, "name": name, "topic": topic,
-            "visibility": "listed", "access": "open", "speaking": "open", "retention_seconds": 3600,
+            "visibility": "listed", "access": "open", "speaking": "open", "retention_seconds": 7 * 86400,
+            "permanent": name == "lobby", "created_at": Self.timestamp(Date().addingTimeInterval(-86400 * 23)),
             "latest_seq": seq, "occupant_count": occupants.count, "occupants": occupants,
         ]
-        state = RoomState(room: Self.decode(Room.self, room)!, role: nil)
+        state = RoomState(room: Self.decode(Room.self, room)!, role: name == "dev" ? .operator : nil)
 
         // Some history, already written.
         var history: [Message] = []
@@ -69,7 +74,7 @@ final class DemoFeed {
             messages[seq] = dict
             history.append(Self.decode(Message.self, dict)!)
         }
-        state = RoomState(room: Self.decode(Room.self, room.merging(["latest_seq": seq]) { $1 })!, role: nil)
+        state = RoomState(room: Self.decode(Room.self, room.merging(["latest_seq": seq]) { $1 })!, role: name == "dev" ? .operator : nil)
         state.load(history)
     }
 

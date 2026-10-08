@@ -73,7 +73,20 @@ final class ChatController {
 
     /// What the help panel shows: everything (⌘/, `/help`) or one topic; nil when closed.
     enum HelpView: Equatable { case all, topic(Help.Topic) }
-    var help: HelpView?
+    var help: HelpView? {
+        didSet { if help != nil { showingRoomInfo = false } }
+    }
+
+    /// The room info wall (/room, ⌘I). Only one wall view at a time: it replaces help.
+    var showingRoomInfo = false {
+        didSet { if showingRoomInfo { help = nil } }
+    }
+
+    /// What the info wall shows for the active room.
+    var roomInfo: RoomInfo? {
+        guard let state else { return nil }
+        return RoomInfo(state: state, me: me, myName: displayName, signing: signByDefault, isOperator: isOperator)
+    }
 
     /// ←→ in help: the next or previous topic, stopping at the ends.
     func pageHelp(_ delta: Int) {
@@ -474,6 +487,10 @@ final class ChatController {
             }
             return help = .topic(topic)
         }
+        if head == "/room", rest.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard state != nil else { return note(.error, "not in a room") }
+            return showingRoomInfo = true
+        }
         if head == "/leave" || head == "/part" {
             let name = rest.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased()
             let target = name.isEmpty ? activeRoom : rooms.first { state($0)?.room.name == name }
@@ -481,6 +498,22 @@ final class ChatController {
             return leave(target)
         }
         if demoMe != nil {
+            switch head {
+            case "/nick":
+                if let problem = DisplayName.problem(rest) { return note(.error, problem) }
+                displayName = rest
+                return note(.info, "you're \(rest) (in the demo)")
+            case "/sign", "/unsigned":
+                if let activeRoom, !rest.isEmpty { demos[activeRoom]?.input(MentionText.compose(rest, labels: labels)) }
+                return
+            case "/react", "/edit":
+                break
+            default:
+                if head.hasPrefix("/") {
+                    let known = Help.commands.contains { $0.name == head }
+                    return note(.error, known ? "\(head) needs the server: not in demo mode" : "unknown command \(head); /help")
+                }
+            }
             if let activeRoom { demos[activeRoom]?.input(MentionText.compose(line, labels: labels)) }
             return
         }
@@ -545,15 +578,9 @@ final class ChatController {
     /// `/room unlisted`, `/room key hunter2`, `/room invite`, `/room moderated`,
     /// `/room retention 24h` (or `forever`). Several can go in one command.
     private func roomCommand(_ args: String) async throws {
-        guard let state else { return note(.error, "not in a room") }
+        guard state != nil else { return note(.error, "not in a room") }
         let words = args.split(separator: " ").map(String.init)
-        if words.isEmpty {
-            let r = state.room
-            let retention = r.retentionSeconds.map { Self.duration($0) } ?? "forever"
-            note(.info, "#\(r.name): \(r.visibility ?? "?") · access \(r.access ?? "?") · speaking \(r.speaking ?? "?") · keeps messages \(retention) · you: \(state.role?.rawValue ?? "member")")
-            note(.info, "change with /room listed|unlisted · open|key <key>|invite · moderated|unmoderated · retention <24h|7d|forever>")
-            return
-        }
+        if words.isEmpty { return showingRoomInfo = true }
         var update = RoomUpdate()
         var i = 0
         while i < words.count {
@@ -581,6 +608,7 @@ final class ChatController {
             i += 1
         }
         try await updateActiveRoom(update, done: "room updated")
+        showingRoomInfo = true                          // the wall shows the result, and glows what changed
     }
 
     private func updateActiveRoom(_ update: RoomUpdate, done: String) async throws {

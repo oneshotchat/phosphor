@@ -105,6 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Dev: show the first-launch name prompt (nothing is sent in demo mode).
         if env["PHOSPHOR_ASK_NAME"] != nil { controller.browser.ask(.name(problem: env["PHOSPHOR_NAME_PROBLEM"])) }
 
+        // Dev: show the room info wall after PHOSPHOR_INFO_AT seconds.
+        if let at = env["PHOSPHOR_INFO_AT"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [controller] in controller.showingRoomInfo = true }
+        }
+
         // Dev: open the help panel ("all" or a topic).
         // …after PHOSPHOR_HELP_AT seconds, to catch it opening.
         if let help = env["PHOSPHOR_HELP"] {
@@ -143,6 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
+    @objc func toggleRoomInfo(_ sender: Any?) {
+        if !controller.showingRoomInfo, controller.state == nil { return controller.note(.error, "not in a room") }
+        controller.showingRoomInfo.toggle()
+    }
     @objc func toggleHelp(_ sender: Any?) { controller.help = controller.help == nil ? .all : nil }
     @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
     @objc func jumpToLatest(_ sender: Any?) { renderer.jumpToLatest() }
@@ -219,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let arrow = { (key: Int) in String(UnicodeScalar(key)!) }
         submenu("Rooms", [
             item("Room Browser", #selector(toggleBrowser(_:)), "l", target: self),
+            item("Room Info", #selector(toggleRoomInfo(_:)), "i", target: self),
             item("Leave Room", #selector(leaveRoom(_:)), "w", target: self),
             NSMenuItem.separator(),
             item("Next Room", #selector(nextRoom(_:)), arrow(NSRightArrowFunctionKey), target: self),

@@ -254,6 +254,8 @@ final class PhosphorView: MTKView, NSTextInputClient {
                 input.updateCompletions(labels: [])
             } else if controller?.help != nil {
                 controller?.help = nil
+            } else if controller?.showingRoomInfo == true {
+                controller?.showingRoomInfo = false
             } else if controller?.focus != nil {
                 controller?.moveFocus(nil)
             } else {

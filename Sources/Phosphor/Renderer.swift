@@ -74,6 +74,13 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let hud: HUD
     private let browserScene: BrowserScene
     private let helpScene: HelpScene
+    private let infoScene: RoomInfoScene
+    /// The room info wall: how far risen, and what it last showed, so a setting that
+    /// changes can glow.
+    private var infoProgress: Float = 0
+    private var wasShowingInfo = false
+    private var lastInfo: RoomInfo?
+    private var infoChangedAt: [String: Float] = [:]
     /// Help in the world: how far its walls have risen, which wall the camera is at
     /// (fractional while flying between them), and when it last opened, closed or moved
     /// on. With Reduce Motion on, the flat HUD panel instead.
@@ -141,6 +148,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         hud = HUD(atlas: atlas)
         browserScene = BrowserScene(atlas: atlas)
         helpScene = HelpScene(atlas: atlas)
+        infoScene = RoomInfoScene(atlas: atlas)
         self.controller = controller
         phosphorView = view
 
@@ -284,6 +292,20 @@ final class Renderer: NSObject, MTKViewDelegate {
             desiredEye = view.eye
             desiredTarget = view.target
         }
+        // Room info: one wall where help's stand, so the same flight.
+        let showingInfo = controller.showingRoomInfo && !controller.browser.isOpen && controller.state != nil
+        if showingInfo != wasShowingInfo {
+            wasShowingInfo = showingInfo
+            helpMovedAt = time
+            if showingInfo {
+                ripples.append(FrameGeometry.Ripple(center: RoomInfoScene.base, radius: HelpScene.wallWidth / 2,
+                                                    startedAt: time, strength: 0.28))
+            }
+        }
+        if showingInfo {
+            desiredEye = RoomInfoScene.view.eye
+            desiredTarget = RoomInfoScene.view.target
+        }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
         // Ease slowly in and out of reading mode and the browser; otherwise follow closely.
         if controller.browser.isOpen != wasBrowsing {
@@ -335,17 +357,18 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         // The help panel dims the world behind it; so, less, does the list of commands.
         let showingCommands = phosphorView.map { $0.input.completionKind == .command && !$0.input.completions.isEmpty } ?? false
-        let dimTarget: Float = controller.browser.isOpen ? 0 : controller.help != nil ? (Self.helpIn3D ? 0.88 : 0.985)
+        let dimTarget: Float = controller.browser.isOpen ? 0 : showingInfo ? 0.93 : controller.help != nil ? (Self.helpIn3D ? 0.88 : 0.985)
             : showingCommands ? 0.88 : 0
         helpFade += (dimTarget - helpFade) * min(1, dt * 12)
         if helpFade > 0.01 {
             let keep = 1 - helpFade
             // Rooms dim; with help in the world the floor stays, so the walls stand on it.
-            let helpWalls = controller.help != nil && Self.helpIn3D
+            let helpWalls = (controller.help != nil && Self.helpIn3D) || showingInfo
             for i in (helpWalls ? floorLines : 0)..<geometry.lines.count { geometry.lines[i].color.w *= keep }
             for i in (helpWalls ? floorGlyphs : 0)..<geometry.glyphs.count { geometry.glyphs[i].color.w *= keep }
         }
         buildHelp(into: &geometry, dt: dt, helping: helping)
+        buildInfo(into: &geometry, dt: dt, showing: showingInfo, time: time)
 
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()
@@ -591,6 +614,20 @@ final class Renderer: NSObject, MTKViewDelegate {
         helpFocus += (Float(helpIndex) - helpFocus) * min(1, dt * 6)      // with the camera
         helpScene.build(into: &g, progress: helpProgress, focus: helpFocus, selected: helpIndex,
                         isOperator: controller.isOperator, theme: theme)
+    }
+
+    private func buildInfo(into g: inout FrameGeometry, dt: Float, showing: Bool, time: Float) {
+        infoProgress = simd_clamp(infoProgress + (showing ? dt / 0.5 : -dt / 0.35), 0, 1)
+        // Keep what it showed while it sinks, even if you've left the room.
+        if let info = controller.roomInfo {
+            if let last = lastInfo, last.name == info.name, infoProgress > 0 {
+                for (old, new) in zip(last.settings, info.settings) where old != new { infoChangedAt[new.label] = time }
+            }
+            lastInfo = info
+        }
+        guard infoProgress > 0, let info = lastInfo else { return }
+        let glow = infoChangedAt.mapValues { max(0, 1 - (time - $0) / 2.5) }.filter { $0.value > 0 }
+        infoScene.build(into: &g, info: info, progress: infoProgress, glow: glow, theme: theme)
     }
 
     /// The overview's rooms you haven't joined: a row in front of the active room. If they

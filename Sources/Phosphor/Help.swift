@@ -28,7 +28,7 @@ enum Help {
         Command(name: "/join", args: "room [key]", summary: "join a room, or create it", topic: .rooms),
         Command(name: "/join", args: "room invite code", summary: "join with an invite code", topic: .rooms),
         Command(name: "/leave", args: "[room]", summary: "leave this room, or the one named", topic: .rooms),
-        Command(name: "/room", args: "", summary: "show this room's settings", topic: .rooms),
+        Command(name: "/room", args: "", summary: "this room's settings and people (⌘I)", topic: .rooms),
         Command(name: "/help", args: "[topic]", summary: "this help (⌘/) · topics: chat, rooms, mod, keys", topic: .rooms),
 
         Command(name: "/nick", args: "name", summary: "change your display name", topic: .chat),
@@ -61,7 +61,7 @@ enum Help {
         ("↑ ↓  ·  esc", "select a message  ·  clear"),
         ("⌘L", "room browser"),
         ("⌘← ⌘→  ·  ⌘1–9", "switch rooms"),
-        ("⌘W", "leave room"),
+        ("⌘I  ·  ⌘W", "room info  ·  leave room"),
         ("⌘G", "ring or row layout"),
         ("⌘R", "reading mode"),
         ("⌘↓  ·  ⌘0", "latest  ·  reset view"),
