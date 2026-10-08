@@ -237,6 +237,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
             controller?.pageHelp(-1)
         case #selector(moveRight(_:)) where controller?.help != nil && input.text.isEmpty:
             controller?.pageHelp(1)
+        case #selector(moveLeft(_:)) where controller?.showingRoomInfo == true && input.text.isEmpty:
+            controller?.pageInfo(-1)
+        case #selector(moveRight(_:)) where controller?.showingRoomInfo == true && input.text.isEmpty:
+            controller?.pageInfo(1)
         case #selector(moveLeft(_:)): input.move(-1)
         case #selector(moveRight(_:)): input.move(1)
         case #selector(moveToBeginningOfLine(_:)), #selector(moveToLeftEndOfLine(_:)): input.moveToStart()

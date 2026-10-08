@@ -213,6 +213,20 @@ private func makeClient() throws -> OSCClient {
         #expect(StubServer.seen.last!.body["expires_in"] as? Int == 86400)
     }
 
+    @Test func roleListingTakesEitherShape() async throws {
+        StubServer.reset(loginReplies + [
+            .init(json: #"{"roles":[{"identity":"abc","role":"operator","name":"sam"},{"identity":"def","role":"banned"}]}"#),
+            .init(json: #"[{"identity":"ghi","role":"voice"}]"#),
+        ])
+        let client = try makeClient()
+        let wrapped = try await client.roles(room: "r1")
+        #expect(StubServer.seen.last!.method == "GET")
+        #expect(StubServer.seen.last!.path == "/v1/rooms/r1/roles")
+        #expect(wrapped == [RoleEntry(identity: "abc", role: .operator, name: "sam"), RoleEntry(identity: "def", role: .banned)])
+        let bare = try await client.roles(room: "r1")
+        #expect(bare == [RoleEntry(identity: "ghi", role: .voice)])
+    }
+
     @MainActor @Test func leavingReportsTheRoomName() async throws {
         let room = #"{"room":{"id":"r1","name":"secret","latest_seq":5},"role":null,"created":false}"#
         StubServer.reset(loginReplies + [

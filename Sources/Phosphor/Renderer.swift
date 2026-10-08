@@ -78,6 +78,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// The room info wall: how far risen, and what it last showed, so a setting that
     /// changes can glow.
     private var infoProgress: Float = 0
+    private var infoFocus: Float = 0
+    private var lastInfoPage = 0
     private var wasShowingInfo = false
     private var lastInfo: RoomInfo?
     private var infoChangedAt: [String: Float] = [:]
@@ -294,17 +296,22 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
         // Room info: one wall where help's stand, so the same flight.
         let showingInfo = controller.showingRoomInfo && !controller.browser.isOpen && controller.state != nil
-        if showingInfo != wasShowingInfo {
-            wasShowingInfo = showingInfo
-            helpMovedAt = time
-            if showingInfo {
-                ripples.append(FrameGeometry.Ripple(center: RoomInfoScene.base, radius: HelpScene.wallWidth / 2,
-                                                    startedAt: time, strength: 0.28))
+        if showingInfo != wasShowingInfo || (showingInfo && controller.infoPage != lastInfoPage) {
+            if showingInfo, !wasShowingInfo {
+                infoFocus = Float(controller.infoPage)
+                for i in 0...1 {
+                    ripples.append(FrameGeometry.Ripple(center: RoomInfoScene.base(i), radius: HelpScene.wallWidth / 2,
+                                                        startedAt: time + 0.06 * Float(abs(i - controller.infoPage)), strength: 0.28))
+                }
             }
+            wasShowingInfo = showingInfo
+            lastInfoPage = controller.infoPage
+            helpMovedAt = time
         }
         if showingInfo {
-            desiredEye = RoomInfoScene.view.eye
-            desiredTarget = RoomInfoScene.view.target
+            let view = RoomInfoScene.view(Float(controller.infoPage))
+            desiredEye = view.eye
+            desiredTarget = view.target
         }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
         // Ease slowly in and out of reading mode and the browser; otherwise follow closely.
@@ -618,6 +625,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     private func buildInfo(into g: inout FrameGeometry, dt: Float, showing: Bool, time: Float) {
         infoProgress = simd_clamp(infoProgress + (showing ? dt / 0.5 : -dt / 0.35), 0, 1)
+        guard infoProgress > 0 else { return lastInfo = nil }
+        infoFocus += (Float(controller.infoPage) - infoFocus) * min(1, dt * 6)      // with the camera
         // Keep what it showed while it sinks, even if you've left the room.
         if let info = controller.roomInfo {
             if let last = lastInfo, last.name == info.name, infoProgress > 0 {
@@ -625,9 +634,10 @@ final class Renderer: NSObject, MTKViewDelegate {
             }
             lastInfo = info
         }
-        guard infoProgress > 0, let info = lastInfo else { return }
+        guard let info = lastInfo else { return }
         let glow = infoChangedAt.mapValues { max(0, 1 - (time - $0) / 2.5) }.filter { $0.value > 0 }
-        infoScene.build(into: &g, info: info, progress: infoProgress, glow: glow, theme: theme)
+        infoScene.build(into: &g, info: info, progress: infoProgress, focus: infoFocus, page: controller.infoPage,
+                        glow: glow, theme: theme)
     }
 
     /// The overview's rooms you haven't joined: a row in front of the active room. If they

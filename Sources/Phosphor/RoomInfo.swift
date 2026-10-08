@@ -14,6 +14,8 @@ struct RoomInfo: Equatable {
     struct Person: Equatable {
         var identity: String
         var label: String
+        /// A role, or when they last spoke; empty for none.
+        var note: String = ""
     }
 
     var name: String
@@ -27,7 +29,14 @@ struct RoomInfo: Equatable {
     var signing: Bool
     var isOperator: Bool
 
-    init(state: RoomState, me: String, myName: String, signing: Bool, isOperator: Bool) {
+    /// The people wall: everyone here; people with a role who aren't; and who spoke in the
+    /// loaded history but isn't here (the protocol keeps no other record of who came by).
+    var present: [Person]
+    var absentRoles: [Person]
+    var recent: [Person]
+
+    /// `roles` is the room's role listing, when it's been fetched.
+    init(state: RoomState, me: String, myName: String, signing: Bool, isOperator: Bool, roles: [RoleEntry]?, now: Date = Date()) {
         let room = state.room
         name = "#" + SafeText.clean(room.name)
         topic = room.topic.map(SafeText.clean).flatMap { $0.isEmpty ? nil : $0.replacingOccurrences(of: "\n", with: " ") }
@@ -67,11 +76,60 @@ struct RoomInfo: Equatable {
         ]
 
         let labels = state.labels
+        var authorNames: [String: String] = [:]
+        for m in state.orderedMessages { authorNames[m.author.identity] = m.author.name }
+        func label(_ identity: String, _ name: String?) -> String {
+            SafeText.clean(labels[identity] ?? name ?? authorNames[identity] ?? String(identity.prefix(8)))
+        }
         here = state.occupants.count
-        operators = state.occupants.values
-            .filter { $0.role == .operator }
-            .map { Person(identity: $0.identity, label: SafeText.clean(labels[$0.identity] ?? $0.name)) }
-            .sorted { $0.label < $1.label }
+
+        // Roles: the listing if we have it (it includes people who aren't here), else
+        // what the occupants say.
+        var roleOf: [String: Role] = [:]
+        for o in state.occupants.values { if let r = o.role { roleOf[o.identity] = r } }
+        var roleNames: [String: String] = [:]
+        for entry in roles ?? [] {
+            roleOf[entry.identity] = entry.role
+            if let n = entry.name { roleNames[entry.identity] = n }
+        }
+        func roleWord(_ identity: String, admin: Bool = false) -> String {
+            switch roleOf[identity] {
+            case .operator: "operator"
+            case .voice: "voiced"
+            case .invited: "invited"
+            case .muted: "muted"
+            case .banned: "banned"
+            case .unknown(let raw): SafeText.clean(raw)
+            case nil: admin ? "server admin" : ""
+            }
+        }
+        operators = roleOf.filter { $0.value == .operator }.keys
+            .map { Person(identity: $0, label: label($0, state.occupants[$0]?.name ?? roleNames[$0])) }
+            .sorted { $0.label.lowercased() < $1.label.lowercased() }
+
+        // Here now: operators first, then by name; you're marked.
+        let rank: (String) -> Int = { roleOf[$0] == .operator ? 0 : roleOf[$0] == .voice ? 1 : 2 }
+        present = state.occupants.values
+            .map { o in
+                var note = roleWord(o.identity, admin: o.admin == true)
+                if o.identity == me { note = note.isEmpty ? "you" : "you · " + note }
+                return Person(identity: o.identity, label: label(o.identity, o.name), note: note)
+            }
+            .sorted { (rank($0.identity), $0.label.lowercased()) < (rank($1.identity), $1.label.lowercased()) }
+        let presentIDs = Set(state.occupants.keys)
+        absentRoles = roleOf.keys.filter { !presentIDs.contains($0) }
+            .map { Person(identity: $0, label: label($0, roleNames[$0]), note: roleWord($0)) }
+            .sorted { $0.note == $1.note ? $0.label.lowercased() < $1.label.lowercased() : $0.note > $1.note }
+
+        // Recently spoke: newest first, once each, not counting anyone listed above.
+        var seen = presentIDs.union(roleOf.keys)
+        var recent: [Person] = []
+        for m in state.orderedMessages.reversed() where !seen.contains(m.author.identity) {
+            seen.insert(m.author.identity)
+            let ago = m.createdAt.map { Self.ago(now.timeIntervalSince($0)) } ?? ""
+            recent.append(Person(identity: m.author.identity, label: label(m.author.identity, m.author.name), note: ago))
+        }
+        self.recent = recent
         you = Person(identity: me, label: SafeText.clean(labels[me] ?? myName))
         youAre = switch state.role {
         case .operator: "operator"
@@ -81,6 +139,15 @@ struct RoomInfo: Equatable {
         }
         self.signing = signing
         self.isOperator = isOperator
+    }
+
+    /// "just now", "5m ago", "3h ago", "2d ago".
+    static func ago(_ seconds: TimeInterval) -> String {
+        let s = Int(max(0, seconds))
+        if s < 60 { return "just now" }
+        if s < 3600 { return "\(s / 60)m ago" }
+        if s < 86400 { return "\(s / 3600)h ago" }
+        return "\(s / 86400)d ago"
     }
 
     /// "7 days", "24 hours", "90 minutes".

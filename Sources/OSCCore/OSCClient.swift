@@ -139,6 +139,12 @@ public actor OSCClient {
         let _: Empty = try await call("PUT", "/v1/rooms/\(segment(room))/roles/\(segment(identity))", body: Body(role: role))
     }
 
+    /// Everyone with a role in the room, present or not. Anyone in the room may ask.
+    public func roles(room: String) async throws -> [RoleEntry] {
+        let list: RoleList = try await call("GET", "/v1/rooms/\(segment(room))/roles")
+        return list.roles
+    }
+
     public func clearRole(room: String, identity: String) async throws {
         let _: Empty = try await call("DELETE", "/v1/rooms/\(segment(room))/roles/\(segment(identity))")
     }

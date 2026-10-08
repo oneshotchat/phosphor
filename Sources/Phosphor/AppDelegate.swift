@@ -107,7 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Dev: show the room info wall after PHOSPHOR_INFO_AT seconds.
         if let at = env["PHOSPHOR_INFO_AT"].flatMap(Double.init) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [controller] in controller.showingRoomInfo = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [controller] in
+                controller.showingRoomInfo = true
+                if env["PHOSPHOR_INFO_PAGE"] == "1" { controller.pageInfo(1) }      // …on the people wall
+            }
         }
 
         // Dev: open the help panel ("all" or a topic).

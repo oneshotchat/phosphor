@@ -424,3 +424,33 @@ enum Timestamp {
         return try? Date(string, strategy: Date.ISO8601FormatStyle())
     }
 }
+
+/// Someone's role in a room (`GET /v1/rooms/{room}/roles`). Roles outlast presence, so
+/// this includes people who aren't there.
+public struct RoleEntry: Codable, Sendable, Equatable {
+    public var identity: String
+    public var role: Role
+    public var name: String?
+
+    public init(identity: String, role: Role, name: String? = nil) {
+        self.identity = identity
+        self.role = role
+        self.name = name
+    }
+}
+
+/// The roles listing, as `{"roles": [...]}` or a bare array: the protocol doesn't spell
+/// out the shape, so either is accepted.
+struct RoleList: Decodable {
+    var roles: [RoleEntry]
+
+    private enum CodingKeys: String, CodingKey { case roles }
+
+    init(from decoder: Decoder) throws {
+        if let keyed = try? decoder.container(keyedBy: CodingKeys.self), let roles = try? keyed.decode([RoleEntry].self, forKey: .roles) {
+            self.roles = roles
+        } else {
+            roles = try decoder.singleValueContainer().decode([RoleEntry].self)
+        }
+    }
+}

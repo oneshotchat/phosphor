@@ -77,15 +77,37 @@ final class ChatController {
         didSet { if help != nil { showingRoomInfo = false } }
     }
 
-    /// The room info wall (/room, ⌘I). Only one wall view at a time: it replaces help.
+    /// The room info walls (/room, ⌘I): the room's settings, and beside it its people.
+    /// Only one wall view at a time: it replaces help.
     var showingRoomInfo = false {
-        didSet { if showingRoomInfo { help = nil } }
+        didSet {
+            guard showingRoomInfo else { return }
+            help = nil
+            if !oldValue { infoPage = 0 }
+            if let activeRoom { refreshRoles(activeRoom) }
+        }
+    }
+    /// 0: the room, 1: its people.
+    var infoPage = 0
+
+    /// ←→ on the info walls.
+    func pageInfo(_ delta: Int) { infoPage = max(0, min(1, infoPage + delta)) }
+
+    /// Each room's role listing, fetched when its info wall opens and when a role changes.
+    private var roomRoles: [String: [RoleEntry]] = [:]
+
+    private func refreshRoles(_ room: String) {
+        guard demoMe == nil, let client = session?.client else { return }
+        Task {
+            if let roles = try? await client.roles(room: room) { roomRoles[room] = roles }
+        }
     }
 
-    /// What the info wall shows for the active room.
+    /// What the info walls show for the active room.
     var roomInfo: RoomInfo? {
-        guard let state else { return nil }
-        return RoomInfo(state: state, me: me, myName: displayName, signing: signByDefault, isOperator: isOperator)
+        guard let state, let activeRoom else { return nil }
+        return RoomInfo(state: state, me: me, myName: displayName, signing: signByDefault, isOperator: isOperator,
+                        roles: roomRoles[activeRoom])
     }
 
     /// ←→ in help: the next or previous topic, stopping at the ends.
@@ -773,6 +795,7 @@ final class ChatController {
                 activity[room, default: Activity()].unread += 1
                 if m.mentions?.contains(me) == true { activity[room, default: Activity()].mentioned = true }
             }
+            if case .memberRoleChanged = event.payload, roomRoles[room] != nil { refreshRoles(room) }
             onEvent?(room, event)
         case .reloaded(let room):
             onRoomReloaded?(room)
