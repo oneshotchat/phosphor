@@ -144,7 +144,7 @@ final class ChatController {
     var roomInfo: RoomInfo? {
         guard let state, let activeRoom else { return nil }
         return RoomInfo(state: state, me: me, myName: displayName, signing: signByDefault, isOperator: isOperator,
-                        roles: roomRoles[activeRoom], identities: identities)
+                        roles: roomRoles[activeRoom] ?? demos[activeRoom]?.roles, identities: identities)
     }
 
     /// ←→ in help: the next or previous topic, stopping at the ends.

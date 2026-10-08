@@ -67,7 +67,9 @@ final class DemoFeed {
         var history: [Message] = []
         for i in 0..<count {
             seq += 1
-            let author = speakerPool[i % speakerPool.count]
+            // Every fifth line is from someone who's since left, so the people wall has them.
+            let away = people.dropFirst(present.count)
+            let author = i % 5 == 4 && !away.isEmpty ? Array(away)[(i / 5) % away.count] : speakerPool[i % speakerPool.count]
             // Hours old, like history from the real server.
             let dict = message(id: seq, author: author, text: nextLine(),
                                at: Date().addingTimeInterval(-Double(count - i) * 1800))
@@ -143,6 +145,14 @@ final class DemoFeed {
     }
 
     private var speakerPool: [(fp: String, name: String)] { Array(people.dropFirst().prefix(speakers)) }
+
+    /// The room's roles, as GET /roles would list them: its operator, and someone voiced
+    /// who isn't here.
+    var roles: [RoleEntry] {
+        var list = state.occupants.values.compactMap { o in o.role.map { RoleEntry(identity: o.identity, role: $0, name: o.name) } }
+        if let away = people.last, !present.contains(away.fp) { list.append(RoleEntry(identity: away.fp, role: .voice, name: away.name)) }
+        return list
+    }
 
     private func step() {
         let roll = Int.random(in: 0..<100)

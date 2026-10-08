@@ -14,8 +14,12 @@ struct RoomInfo: Equatable {
     struct Person: Equatable {
         var identity: String
         var label: String
-        /// A role, or when they last spoke; empty for none.
-        var note: String = ""
+        /// Their role here ("operator", "voiced", …), or empty.
+        var role: String = ""
+        var isHere = false
+        var isYou = false
+        /// When they last spoke in the loaded history ("2d ago"), or nil.
+        var lastSpoke: String? = nil
     }
 
     var name: String
@@ -30,13 +34,10 @@ struct RoomInfo: Equatable {
     var signing: Bool
     var isOperator: Bool
 
-    /// The people wall: everyone here; people with a role who aren't; and who spoke in the
-    /// loaded history but isn't here (the protocol keeps no other record of who came by).
-    var present: [Person]
-    var absentRoles: [Person]
-    var recent: [Person]
-    /// Everyone on the people wall, in order, for ↑↓.
-    var everyone: [Person] { present + absentRoles + recent }
+    /// The people wall, one list: everyone here (operators first), then people with a role
+    /// who aren't here, then who spoke in the loaded history but isn't here. The protocol
+    /// keeps no other record of who came by.
+    var everyone: [Person]
     /// Looked-up status (`active`, `retired`) by fingerprint, when known.
     var statuses: [String: String]
 
@@ -117,29 +118,34 @@ struct RoomInfo: Equatable {
             .map { Person(identity: $0, label: label($0, state.occupants[$0]?.name ?? roleNames[$0])) }
             .sorted { $0.label.lowercased() < $1.label.lowercased() }
 
-        // Here now: operators first, then by name; you're marked.
+        // When each person last spoke, from the loaded history.
+        var lastSpoke: [String: String] = [:]
+        for m in state.orderedMessages {
+            if let at = m.createdAt { lastSpoke[m.author.identity] = Self.ago(now.timeIntervalSince(at)) }
+        }
+
+        // Here: operators first, then voiced, then by name.
         let rank: (String) -> Int = { roleOf[$0] == .operator ? 0 : roleOf[$0] == .voice ? 1 : 2 }
-        present = state.occupants.values
+        let present = state.occupants.values
             .map { o in
-                var note = roleWord(o.identity, admin: o.admin == true)
-                if o.identity == me { note = note.isEmpty ? "you" : "you · " + note }
-                return Person(identity: o.identity, label: label(o.identity, o.name), note: note)
+                Person(identity: o.identity, label: label(o.identity, o.name), role: roleWord(o.identity, admin: o.admin == true),
+                       isHere: true, isYou: o.identity == me, lastSpoke: lastSpoke[o.identity])
             }
             .sorted { (rank($0.identity), $0.label.lowercased()) < (rank($1.identity), $1.label.lowercased()) }
         let presentIDs = Set(state.occupants.keys)
-        absentRoles = roleOf.keys.filter { !presentIDs.contains($0) }
-            .map { Person(identity: $0, label: label($0, roleNames[$0]), note: roleWord($0)) }
-            .sorted { $0.note == $1.note ? $0.label.lowercased() < $1.label.lowercased() : $0.note > $1.note }
-
-        // Recently spoke: newest first, once each, not counting anyone listed above.
+        // Not here but holding a role: operators first again.
+        let absentRoles = roleOf.keys.filter { !presentIDs.contains($0) }
+            .map { Person(identity: $0, label: label($0, roleNames[$0]), role: roleWord($0), isYou: $0 == me, lastSpoke: lastSpoke[$0]) }
+            .sorted { (rank($0.identity), $0.label.lowercased()) < (rank($1.identity), $1.label.lowercased()) }
+        // Spoke but isn't here and has no role: newest first.
         var seen = presentIDs.union(roleOf.keys)
         var recent: [Person] = []
         for m in state.orderedMessages.reversed() where !seen.contains(m.author.identity) {
             seen.insert(m.author.identity)
-            let ago = m.createdAt.map { Self.ago(now.timeIntervalSince($0)) } ?? ""
-            recent.append(Person(identity: m.author.identity, label: label(m.author.identity, m.author.name), note: ago))
+            recent.append(Person(identity: m.author.identity, label: label(m.author.identity, m.author.name),
+                                 isYou: m.author.identity == me, lastSpoke: lastSpoke[m.author.identity]))
         }
-        self.recent = recent
+        everyone = present + absentRoles + recent
         you = Person(identity: me, label: SafeText.clean(labels[me] ?? myName))
         youAre = switch state.role {
         case .operator: "operator"

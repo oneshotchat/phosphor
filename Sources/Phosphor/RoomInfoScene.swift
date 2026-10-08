@@ -164,14 +164,14 @@ struct RoomInfoScene {
         text(info.signing ? "your messages are signed" : "not signing: /sign signs one", valueX, y, size, theme.primary, 1.0)
     }
 
-    /// The people wall: everyone here on the left; on the right, people with a role who
-    /// aren't here, then who spoke recently but isn't here.
+    /// The people wall: one list, everyone here first. People who aren't here have a dark
+    /// glyph and a dimmer name. The selected person's row opens to show their fingerprint.
     private func drawPeople(into g: inout FrameGeometry, info: RoomInfo, base: SIMD3<Float>, risen: Float, selected: String?,
                             theme: Theme) {
         let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
         let sunk = (1 - risen) * h
         let now = AppClock.now
-        let pad: Float = 0.65, size: Float = 0.32, lineH = size * 1.42
+        let pad: Float = 0.65, size: Float = 0.34, lineH = size * 1.5
         func visible(_ y: Float) -> Float? {
             let above = y - sunk
             return above > 0.05 ? min(1, above / 0.8) : nil
@@ -183,75 +183,90 @@ struct RoomInfoScene {
         }
         func width(_ s: String, _ height: Float) -> Float { FrameGeometry.textWidth(s, atlas: atlas, height: height) }
 
-        let top = h - pad - size * 1.5
-        text("PEOPLE", -w + pad, top, size * 1.5, theme.accent, 1.5)
-        text("in \(info.name)", -w + pad + width("PEOPLE", size * 1.5) + size, top, size, theme.primary, 0.7)
-        let bottom = pad + size * 0.3
-        let columnWidth = w - pad * 1.5
+        let left = -w + pad, right = w - pad
+        let nameX = left + size * 1.3, roleX = left + 4.6, spokeX = left + 6.6
 
-        // A column of people under headings, down to the bottom of the wall; what doesn't
-        // fit becomes "+N more".
-        func column(_ x: Float, _ sections: [(String, [RoomInfo.Person], String)]) {
-            var y = top - lineH * 1.9
-            for (heading, people, empty) in sections {
-                guard y > bottom else { return }
-                text(heading, x, y, size * 0.75, theme.primary, 0.6)
-                y -= lineH
-                if people.isEmpty {
-                    text(empty, x + size * 1.2, y, size * 0.9, theme.primary, 0.45)
-                    y -= lineH
-                }
-                for (i, person) in people.enumerated() {
-                    guard y - lineH > bottom || i == people.count - 1 else {
-                        text("+\(people.count - i) more", x + size * 1.2, y, size * 0.9, theme.primary, 0.6)
-                        y -= lineH
-                        break
-                    }
-                    let isSelected = person.identity == selected
-                    if isSelected { text("▸", x - size * 0.9, y, size, theme.accent, 1.5) }
-                    // Selected, the note also says whether the identity is still in use, and how to copy it.
-                    let status = isSelected ? info.statuses[person.identity].map { $0 == "retired" ? "retired" : $0 } : nil
-                    let note = isSelected ? ([person.note, status ?? ""].filter { !$0.isEmpty } + ["⌘C copies"]).joined(separator: " · ")
-                                          : person.note
-                    drawPerson(person, &g, base: base, x: x, y: y, size: size, sunk: sunk, now: now, theme: theme, fade: visible(y),
-                               maxWidth: columnWidth - width(note, size * 0.8) - size * 2, bright: isSelected)
-                    if !note.isEmpty {
-                        text(note, x + columnWidth - width(note, size * 0.8), y, size * 0.8,
-                             isSelected ? theme.accent : theme.primary, isSelected ? 1 : 0.55)
-                    }
-                    y -= lineH
-                    // Selected: their whole fingerprint, in two halves, and whether it's still in use.
-                    if isSelected {
-                        let fp = person.identity, half = fp.count / 2
-                        let small = size * 0.62
-                        text(String(fp.prefix(half)), x + size * 1.2, y + lineH * 0.25, small, theme.accent, 0.9)
-                        text(String(fp.dropFirst(half)), x + size * 1.2, y - lineH * 0.25, small, theme.accent, 0.9)
-                        y -= lineH * 1.1
-                    }
-                }
-                y -= lineH * 0.6
+        // Heading, with a count of who's here and who else has been around.
+        var y = h - pad - size * 1.5
+        text("PEOPLE", left, y, size * 1.5, theme.accent, 1.5)
+        text("in \(info.name)", left + width("PEOPLE", size * 1.5) + size, y, size, theme.primary, 0.7)
+        let here = info.everyone.filter(\.isHere).count, others = info.everyone.count - here
+        let summary = "\(here) here" + (others > 0 ? " · \(others) more who've been active" : "")
+        text(summary, right - width(summary, size * 0.75), y, size * 0.75, theme.primary, 0.6)
+        y -= lineH * 1.4
+        let headingY = y
+        text("ROLE", roleX, y, size * 0.7, theme.primary, 0.5)
+        text("LAST SPOKE", spokeX, y, size * 0.7, theme.primary, 0.5)
+        y -= lineH * 1.05
+
+        // As many rows as fit, scrolled to keep the selection in view.
+        let selectedIndex = info.everyone.firstIndex { $0.identity == selected }
+        let bottom = pad + size * 0.4
+        let capacity = max(1, Int((y - bottom) / lineH) - (selectedIndex == nil ? 0 : 1) - (others > 0 && here > 0 ? 1 : 0))
+        var first = 0
+        if let i = selectedIndex, info.everyone.count > capacity {
+            first = min(max(0, i - capacity / 2), info.everyone.count - capacity)
+        }
+        let shown = info.everyone.dropFirst(first).prefix(capacity)
+        // The heading names the group the list starts in (scrolled past everyone here, that's "not here").
+        let startsHere = shown.first?.isHere ?? true
+        text(startsHere ? "HERE NOW · \(here)" : "NOT HERE · \(others)", nameX, headingY, size * 0.7, theme.primary, 0.6)
+        if first > 0 { text("↑ \(first) more", right - width("↑ \(first) more", size * 0.7), y + lineH * 1.05, size * 0.7, theme.primary, 0.55) }
+
+        var previousHere = shown.first?.isHere ?? true
+        for person in shown {
+            // Where the people who aren't here start: a faint rule and a heading.
+            if previousHere && !person.isHere, visible(y + lineH * 0.6) != nil {
+                g.line(base + SIMD3(nameX, y + lineH * 0.62 - sunk, 0), base + SIMD3(right, y + lineH * 0.62 - sunk, 0),
+                       theme.primary, intensity: 0.35, width: 1)
+                text("NOT HERE · \(others)", nameX, y, size * 0.7, theme.primary, 0.6)
+                y -= lineH * 0.95
+            }
+            previousHere = person.isHere
+            let isSelected = person.identity == selected
+            if isSelected { text("▸", left - size * 0.9, y, size, theme.accent, 1.5) }
+            drawPerson(person, &g, base: base, x: left, y: y, size: size, sunk: sunk, now: now, theme: theme, fade: visible(y),
+                       maxWidth: roleX - nameX - size * 0.5, bright: isSelected, dark: !person.isHere)
+            let dim: Float = person.isHere ? 1 : 0.6
+            let detailColor = isSelected ? theme.accent : theme.primary
+            if !person.role.isEmpty { text(person.role, roleX, y, size * 0.85, detailColor, 0.8 * dim) }
+            text(person.lastSpoke ?? "—", spokeX, y, size * 0.85, detailColor, (person.isHere ? 0.9 : 0.55))
+            if person.isYou {
+                text("you", nameX + min(width(person.label, size), roleX - nameX - size * 1.8) + size * 0.5, y, size * 0.75,
+                     theme.primary, 0.5)
+            }
+            y -= lineH
+            // Selected: the whole fingerprint, whether it's still in use, and how to copy it.
+            if isSelected {
+                let small = size * 0.62
+                text(person.identity, nameX, y + lineH * 0.2, small, theme.accent, 0.9)
+                let status = info.statuses[person.identity].map { $0 == "retired" ? "retired identity" : $0 }
+                let tail = [status, "⌘C copies"].compactMap { $0 }.joined(separator: " · ")
+                text(tail, right - width(tail, small), y + lineH * 0.2, small, theme.primary, 0.6)
+                y -= lineH * 0.8
             }
         }
-        column(-w + pad, [("HERE NOW · \(info.present.count)", info.present, "nobody")])
-        column(pad * 0.5, [("NOT HERE, WITH A ROLE", info.absentRoles, "nobody"),
-                           ("RECENTLY SPOKE, NOT HERE", info.recent, "nobody else in the history")])
+        let rest = info.everyone.count - first - shown.count
+        if rest > 0 { text("↓ \(rest) more", nameX, y + lineH * 0.2, size * 0.7, theme.primary, 0.55) }
     }
 
     /// A person's glyph, then their name in their colour (cut short to `maxWidth`).
     private func drawPerson(_ person: RoomInfo.Person, _ g: inout FrameGeometry, base: SIMD3<Float>, x: Float, y: Float,
                             size: Float, sunk: Float, now: Float, theme: Theme, fade: Float?, maxWidth: Float = .infinity,
-                            bright: Bool = false) {
+                            bright: Bool = false, dark: Bool = false) {
         guard let fade else { return }
         let glyph = IdentityGlyph(fingerprint: person.identity)
         let color = glyph.color(theme: theme)
+        // Someone who isn't here: a dark glyph, standing still, and a dimmer name.
         glyph.draw(into: &g, at: base + SIMD3(x + size * 0.45, y - sunk + size * 0.35, 0), size: size * 0.45,
-                   color: color, intensity: 1.2 * fade, width: 1.3, now: now)
+                   color: color, intensity: (dark ? 0.16 : 1.2) * fade, width: 1.3, now: dark ? 0 : now)
         var label = person.label
         if FrameGeometry.textWidth(label, atlas: atlas, height: size) > maxWidth {
             while !label.isEmpty, FrameGeometry.textWidth(label + "…", atlas: atlas, height: size) > maxWidth { label.removeLast() }
             label += "…"
         }
         g.text(label, atlas: atlas, origin: base + SIMD3(x + size * 1.2, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0],
-               height: size, color: color, intensity: (bright ? 1.6 : 1.1) * fade)
+               height: size, color: dark && !bright ? simd_mix(color, theme.primary, SIMD3(repeating: 0.6)) : color,
+               intensity: (bright ? 1.6 : dark ? 0.4 : 1.1) * fade)
     }
 }
