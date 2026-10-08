@@ -52,12 +52,13 @@ Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed 
 | ⌘T | Next colour theme |
 | ⌘E | CRT effects |
 | ⌃⌘F | Full screen |
+| ⌘/ | Help |
 
 Scroll up and down to fly along the wall, sideways to orbit, and with ⌥ (or a pinch) to move closer or further away.
 
 ## Commands
 
-Type `/help` in any room for the full list. The main ones:
+Type `/` to see the commands, each with what it does; Tab takes the highlighted one, and once a command is typed its usage stays above the input. **⌘/** (or `/help`) shows every command and key, and `/help chat`, `rooms`, `mod` or `keys` shows one section. Operator commands are only suggested in rooms where you're an operator. The main ones:
 
 - `/join room [key or invite code]`, `/leave`, `/nick name`
 - `/edit [id] text`, `/react [id] 👍`, `/unreact`

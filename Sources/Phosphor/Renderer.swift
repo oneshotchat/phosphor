@@ -21,6 +21,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// Lets the view keep flying up past the oldest message (the tours' warp-speed ending).
     var liftPastTop = false
     /// Curvature, scanlines and grain. Off unless turned on (⌘E); remembered.
+    /// 0…1: how far the world is dimmed behind the help panel or command list.
+    private var helpFade: Float = 0
+
     var crtEnabled = UserDefaults.standard.bool(forKey: "crtEnabled") {
         didSet { if rememberSettings { UserDefaults.standard.set(crtEnabled, forKey: "crtEnabled") } }
     }
@@ -294,6 +297,16 @@ final class Renderer: NSObject, MTKViewDelegate {
         keepScrollbackSteady()
         buildGhosts(into: &geometry, dt: dt, aspect: aspect, fovy: fovy)
 
+        // The help panel dims the world behind it; so, less, does the list of commands.
+        let showingCommands = phosphorView.map { $0.input.completionKind == .command && !$0.input.completions.isEmpty } ?? false
+        let dimTarget: Float = controller.browser.isOpen ? 0 : controller.help != nil ? 0.985 : showingCommands ? 0.88 : 0
+        helpFade += (dimTarget - helpFade) * min(1, dt * 12)
+        if helpFade > 0.01 {
+            let keep = 1 - helpFade
+            for i in geometry.lines.indices { geometry.lines[i].color.w *= keep }
+            for i in geometry.glyphs.indices { geometry.glyphs[i].color.w *= keep }
+        }
+
         // HUD in drawable pixels, origin bottom-left.
         var hudGeometry = FrameGeometry()
         hudGeometry.pixelScale = pixelScale
@@ -306,6 +319,10 @@ final class Renderer: NSObject, MTKViewDelegate {
                       theme: theme, hint: hint)
             if controller.browser.isOpen {
                 hud.buildBrowser(into: &hudGeometry, viewport: viewport, scale: pixelScale, browser: controller.browser, theme: theme)
+            }
+            if let help = controller.help, !controller.browser.isOpen {
+                hud.buildHelp(into: &hudGeometry, viewport: viewport, scale: pixelScale, view: help,
+                              isOperator: controller.isOperator, theme: theme)
             }
         }
         var hudUniforms = FrameUniforms(

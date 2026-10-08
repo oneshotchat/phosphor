@@ -105,6 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Dev: show the first-launch name prompt (nothing is sent in demo mode).
         if env["PHOSPHOR_ASK_NAME"] != nil { controller.browser.ask(.name(problem: env["PHOSPHOR_NAME_PROBLEM"])) }
 
+        // Dev: open the help panel ("all" or a topic).
+        if let help = env["PHOSPHOR_HELP"] { controller.help = Help.Topic(rawValue: help).map { .topic($0) } ?? .all }
+
         // Dev: pre-type into the input ("\n" for new lines).
         if let typed = env["PHOSPHOR_TYPE"] {
             view.devType(typed.replacingOccurrences(of: "\\n", with: "\n"))
@@ -130,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
+    @objc func toggleHelp(_ sender: Any?) { controller.help = controller.help == .all ? nil : .all }
     @objc func nextTheme(_ sender: Any?) { renderer.nextTheme() }
     @objc func jumpToLatest(_ sender: Any?) { renderer.jumpToLatest() }
     @objc func resetView(_ sender: Any?) { renderer.resetView() }
@@ -215,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.tag = n - 1
             return i
         })
+        submenu("Help", [item("Phosphor Help", #selector(toggleHelp(_:)), "/", target: self)])
+        NSApp.helpMenu = main.items.last?.submenu
         NSApp.mainMenu = main
     }
 }

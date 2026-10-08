@@ -37,7 +37,7 @@ struct HUD {
             text(SafeText.clean(topic).replacingOccurrences(of: "\n", with: " "), mx, y, 12, theme.primary, 0.75)
             y -= 16 * scale
         }
-        text("you: \(SafeText.clean(myLabel)) · \(controller.signByDefault ? "signing" : "unsigned")   /help for commands",
+        text("you: \(SafeText.clean(myLabel)) · \(controller.signByDefault ? "signing" : "unsigned")   type / for commands · ⌘/ help",
              mx, y, 12, theme.primary, 0.6)
 
         // Joined rooms, top right: ⌘ number, name, unread count, and @ if you were mentioned.
@@ -125,13 +125,43 @@ struct HUD {
         baseline -= lineH
         for line in shownBelow { plainLine(line) }
 
-        // Mention autocomplete, stacked above the box.
+        // Autocomplete, stacked above the box: people after @, commands after /.
         var cy = y1 + 10 * scale
-        for (i, label) in input.completions.enumerated() {
-            let selected = i == input.completionIndex
-            text((selected ? "▸ @" : "  @") + SafeText.clean(label), x0 + 12 * scale, cy, 14,
-                 selected ? theme.accent : theme.primary, selected ? 1.3 : 0.7)
-            cy += 18 * scale
+        switch input.completionKind {
+        case .mention:
+            for (i, label) in input.completions.enumerated() {
+                let selected = i == input.completionIndex
+                text((selected ? "▸ @" : "  @") + SafeText.clean(label), x0 + 12 * scale, cy, 14,
+                     selected ? theme.accent : theme.primary, selected ? 1.3 : 0.7)
+                cy += 18 * scale
+            }
+        case .command:
+            // A window of eight around the selection; the nearest is closest to the box.
+            let shown = 8, count = input.completions.count
+            let first = max(0, min(input.completionIndex - shown / 2, count - shown))
+            let names = input.completions[first..<min(count, first + shown)]
+            let usages = names.map { Help.forms(of: $0, forOperator: controller.isOperator).first?.usage ?? $0 }
+            let column = (usages.map { width($0, 14) }.max() ?? 0) + 24 * scale
+            for (offset, name) in names.enumerated() {
+                let i = first + offset, selected = i == input.completionIndex
+                text((selected ? "▸ " : "  ") + usages[offset], x0 + 12 * scale, cy, 14,
+                     selected ? theme.accent : theme.primary, selected ? 1.3 : 0.8)
+                let summary = Help.forms(of: name, forOperator: controller.isOperator).first?.summary ?? ""
+                text(summary, x0 + 12 * scale + width("▸ ", 14) + column, cy, 12, theme.primary, selected ? 1.1 : 0.75)
+                cy += 18 * scale
+            }
+            if count > shown {
+                text("  \(count) commands · ↑↓ for more · tab to take one", x0 + 12 * scale, cy, 12, theme.primary, 0.5)
+                cy += 18 * scale
+            }
+        }
+        // Once a command is typed, how to use it.
+        if input.completions.isEmpty, let command = input.typedCommand {
+            let forms = Help.forms(of: command, forOperator: controller.isOperator)
+            for form in forms.reversed() {
+                text("\(form.usage)  ·  \(form.summary)", x0 + 12 * scale, cy, 13, theme.accent, 0.9)
+                cy += 18 * scale
+            }
         }
         if let hint {
             let w = width(hint, 13)
@@ -183,5 +213,68 @@ struct HUD {
             y -= 19 * scale
         }
         if entries.count > window { text("  … \(entries.count) rooms", 12, theme.primary, 0.5) }
+    }
+
+    /// The help panel (⌘/ or /help): every command and key in two columns, or one topic.
+    func buildHelp(into g: inout FrameGeometry, viewport: SIMD2<Float>, scale: Float, view: ChatController.HelpView,
+                   isOperator: Bool, theme: Theme) {
+        let right = SIMD3<Float>(1, 0, 0), up = SIMD3<Float>(0, 1, 0)
+        typealias Row = (left: String, right: String)
+        func rows(_ topic: Help.Topic) -> [Row] {
+            topic == .keys ? Help.keys.map { ($0.keys, $0.action) }
+                : Help.commands.filter { $0.topic == topic }.map { ($0.usage, $0.summary) }
+        }
+        let columns: [[Help.Topic]] = switch view {
+        case .all: [[.chat, .rooms, .keys], [.mod]]
+        case .topic(let topic): [[topic]]
+        }
+
+        // Fit the tallest column in the space between the status and the input box.
+        let lineCount = columns.map { $0.reduce(0) { $0 + rows($1).count + 2 } }.max() ?? 0
+        let top = viewport.y * 0.84, bottom = viewport.y * 0.16
+        let size = min(13, (top - bottom - 60 * scale) / Float(max(1, lineCount)) / (1.4 * scale))
+        let lineH = size * 1.4 * scale
+        func width(_ s: String, _ h: Float) -> Float { FrameGeometry.textWidth(s, atlas: atlas, height: h * scale) }
+        func text(_ s: String, _ x: Float, _ y: Float, _ h: Float, _ color: SIMD3<Float>, _ intensity: Float) {
+            g.text(s, atlas: atlas, origin: SIMD3(x, y, 0), right: right, up: up, height: h * scale, color: color, intensity: intensity)
+        }
+
+        // Each column: the widest left-hand entry sets where the descriptions start.
+        let gap = 20 * scale, columnGap = 48 * scale
+        let layout = columns.map { topics -> (keyWidth: Float, width: Float) in
+            let all = topics.flatMap(rows)
+            let keyWidth = (all.map { width($0.left, size) }.max() ?? 0) + gap
+            let rest = all.map { width($0.right, size * 0.92) }.max() ?? 0
+            let titles = topics.map { width($0.title, size) }.max() ?? 0
+            return (keyWidth, max(keyWidth + rest, titles))
+        }
+        let total = layout.reduce(0) { $0 + $1.width } + columnGap * Float(layout.count - 1)
+        let pad = 24 * scale
+        let x0 = (viewport.x - total) / 2 - pad, x1 = (viewport.x + total) / 2 + pad
+        let y1 = top, y0 = top - (Float(lineCount) * lineH + 52 * scale + pad)
+        g.polyline([SIMD3(x0, y0, 0), SIMD3(x1, y0, 0), SIMD3(x1, y1, 0), SIMD3(x0, y1, 0), SIMD3(x0, y0, 0)],
+                   theme.primary, intensity: 0.8, width: 1.4)
+
+        text("PHOSPHOR HELP", x0 + pad, y1 - pad - 14 * scale, 15, theme.accent, 1.3)
+        let footer = view == .all ? "type / for suggestions  ·  /help chat, rooms, mod or keys  ·  esc closes"
+                                  : "⌘/ for everything  ·  esc closes"
+        text(footer, x0 + pad, y0 + pad * 0.6, 11, theme.primary, 0.55)
+
+        var x = x0 + pad
+        for (topics, column) in zip(columns, layout) {
+            var y = y1 - pad - 14 * scale - 34 * scale
+            for topic in topics {
+                let note = topic == .mod && !isOperator ? "  (you're not an operator here)" : ""
+                text(topic.title + note, x, y, size, theme.accent, 1.1)
+                y -= lineH
+                for row in rows(topic) {
+                    text(row.left, x, y, size, theme.primary, 1.15)
+                    text(row.right, x + column.keyWidth, y, size * 0.92, theme.primary, 0.6)
+                    y -= lineH
+                }
+                y -= lineH
+            }
+            x += column.width + columnGap
+        }
     }
 }

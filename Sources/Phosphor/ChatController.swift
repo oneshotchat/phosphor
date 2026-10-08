@@ -67,6 +67,13 @@ final class ChatController {
 
     func state(_ room: String) -> RoomState? { demos[room]?.state ?? session?.rooms[room] }
     var state: RoomState? { activeRoom.flatMap(state) }
+
+    /// Operator here (or a server admin), so operator commands are worth suggesting.
+    var isOperator: Bool { state?.role == .operator || state?.occupants[me]?.admin == true }
+
+    /// What the help panel shows: everything (⌘/, `/help`) or one topic; nil when closed.
+    enum HelpView: Equatable { case all, topic(Help.Topic) }
+    var help: HelpView?
     var me: String { demoMe ?? session?.me ?? "" }
     var origin: String { session?.client.origin ?? "" }
     var connection: EventSocket.Status { demoMe != nil ? .connected : session?.connection ?? .connecting }
@@ -452,6 +459,14 @@ final class ChatController {
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
         let (head, rest) = split(line)
+        if head == "/help" {
+            let word = rest.trimmingCharacters(in: .whitespaces).lowercased()
+            if word.isEmpty { return help = .all }
+            guard let topic = Help.Topic(rawValue: word) ?? (word == "operators" ? .mod : nil) else {
+                return note(.error, "no help on \(word) · try /help chat, rooms, mod or keys")
+            }
+            return help = .topic(topic)
+        }
         if head == "/leave" || head == "/part" {
             let name = rest.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased()
             let target = name.isEmpty ? activeRoom : rooms.first { state($0)?.room.name == name }
@@ -465,8 +480,6 @@ final class ChatController {
         Task {
             do {
                 switch head {
-                case "/help":
-                    note(.info, "/room [settings] · /topic · /invite · /op /voice /mute /kick /ban @who · /sign or /unsigned text · /edit [id] text · /react [id] 👍 · /unreact · /join room [key] · /leave · /nick name · ⌘←→ ⌘1-9 rooms · ↑↓ select · ⌘R read · ⌘G ring/row")
                 case "/unsigned":
                     try await send(rest, labels: labels, sign: false)
                 case "/sign":

@@ -3,12 +3,16 @@ import MetalKit
 import OSCCore
 
 /// The single-line composer: committed text, a caret (UTF-16 offset, as AppKit's text
-/// input APIs count), the IME's in-progress composition, and mention autocomplete.
+/// input APIs count), the IME's in-progress composition, and autocomplete for mentions
+/// and commands.
 struct InputLine {
+    enum CompletionKind { case mention, command }
+
     private(set) var text = ""
     private(set) var caret = 0
     var marked = ""
     private(set) var completions: [String] = []
+    private(set) var completionKind = CompletionKind.mention
     var completionIndex = 0
 
     private var caretIndex: String.Index { String.Index(utf16Offset: caret, in: text) }
@@ -59,27 +63,60 @@ struct InputLine {
         return (at..<caretIndex, String(prefix))
     }
 
-    mutating func updateCompletions(labels: [String]) {
-        guard let query = mentionQuery else {
+    /// `/partial` while the caret is still in a line's first word.
+    private var commandQuery: String? {
+        let before = textBeforeCaret
+        guard before.hasPrefix("/"), !before.contains(where: \.isWhitespace) else { return nil }
+        return before.lowercased()
+    }
+
+    /// The command typed so far, once it's followed by a space (for its usage line).
+    var typedCommand: String? {
+        guard text.hasPrefix("/"), let space = text.firstIndex(where: \.isWhitespace) else { return nil }
+        return text[..<space].lowercased()
+    }
+
+    mutating func updateCompletions(labels: [String], commands: [String] = []) {
+        if let query = commandQuery {
+            if completionKind != .command { completionIndex = 0 }
+            completionKind = .command
+            completions = commands.filter { $0.hasPrefix(query) }
+        } else if let query = mentionQuery {
+            if completionKind != .mention { completionIndex = 0 }
+            completionKind = .mention
+            let p = query.prefix.lowercased()
+            completions = Array(labels.filter { $0.lowercased().hasPrefix(p) }.sorted().prefix(5))
+        } else {
             completions = []
-            return
         }
-        let p = query.prefix.lowercased()
-        completions = Array(labels.filter { $0.lowercased().hasPrefix(p) }.sorted().prefix(5))
         completionIndex = min(completionIndex, max(0, completions.count - 1))
     }
 
-    /// True while the typed `@prefix` isn't already exactly one of the suggestions.
+    /// True while what's typed isn't already exactly one of the suggestions.
     var wantsCompletion: Bool {
-        guard let query = mentionQuery, !completions.isEmpty else { return false }
-        return !completions.contains(query.prefix)
+        guard !completions.isEmpty else { return false }
+        switch completionKind {
+        case .command: return commandQuery.map { !completions.contains($0) } ?? false
+        case .mention: return mentionQuery.map { !completions.contains($0.prefix) } ?? false
+        }
     }
 
     mutating func acceptCompletion() {
-        guard let query = mentionQuery, completions.indices.contains(completionIndex) else { return }
-        let replacement = "@" + completions[completionIndex] + " "
-        text.replaceSubrange(query.range, with: replacement)
-        caret = query.range.lowerBound.utf16Offset(in: text) + replacement.utf16.count
+        guard completions.indices.contains(completionIndex) else { return }
+        let range: Range<String.Index>
+        let replacement: String
+        switch completionKind {
+        case .command:
+            guard commandQuery != nil else { return }
+            range = text.startIndex..<caretIndex
+            replacement = completions[completionIndex] + " "
+        case .mention:
+            guard let query = mentionQuery else { return }
+            range = query.range
+            replacement = "@" + completions[completionIndex] + " "
+        }
+        text.replaceSubrange(range, with: replacement)
+        caret = range.lowerBound.utf16Offset(in: text) + replacement.utf16.count
         completions = []
     }
 
@@ -210,6 +247,8 @@ final class PhosphorView: MTKView, NSTextInputClient {
         case #selector(cancelOperation(_:)):
             if !input.completions.isEmpty {
                 input.updateCompletions(labels: [])
+            } else if controller?.help != nil {
+                controller?.help = nil
             } else if controller?.focus != nil {
                 controller?.moveFocus(nil)
             } else {
@@ -228,7 +267,8 @@ final class PhosphorView: MTKView, NSTextInputClient {
             return
         }
         let me = controller?.me
-        input.updateCompletions(labels: labelsToFingerprints().filter { $0.value != me }.map(\.key))
+        input.updateCompletions(labels: labelsToFingerprints().filter { $0.value != me }.map(\.key),
+                                commands: Help.names(forOperator: controller?.isOperator ?? false))
     }
 
     /// Tripcode label → fingerprint for everyone in view; labels are unique by construction.
