@@ -194,7 +194,7 @@ struct RoomInfoScene {
         let nameX = left + size * 1.3, roleX = left + 4.6, spokeX = left + 6.6
         let people = info.everyone
         let here = people.filter(\.isHere).count, others = people.count - here
-        let headingH = size * 0.7, groupGap = lineH * 0.7          // a group's heading, and the space above it
+        let headingH = size * 0.7          // a group's heading
 
         // Heading.
         var y = h - pad - size * 1.5
