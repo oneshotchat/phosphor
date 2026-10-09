@@ -21,7 +21,8 @@ final class RoomScene {
     private struct PersonVisual {
         let glyph: IdentityGlyph
         var name: String
-        /// Your petname for them, if they're a contact and it differs from their name.
+        /// A contact: the ★ under their name, and your petname for them (if it differs).
+        var isContact = false
         var petname: String?
         var joinedAt: Float = -100
         var leftAt: Float?
@@ -232,7 +233,8 @@ final class RoomScene {
             // them on a line below, so you know who they are whatever they call themselves.
             let short = state.labels[fp] ?? occupant.name
             let contact = ContactBook.shared.contact(fp)
-            people[fp]?.name = contact != nil ? short + " ★" : short
+            people[fp]?.name = short
+            people[fp]?.isContact = contact != nil
             people[fp]?.petname = contact?.petname.flatMap { $0.isEmpty || $0 == occupant.name ? nil : $0 }
         }
         people = people.filter { fp, p in state.occupants[fp] != nil || (p.leftAt.map { now - $0 < 2.5 } ?? false) }
@@ -385,7 +387,9 @@ final class RoomScene {
             panels[message.id] = visual
 
             let y0 = visual.y!, s = visual.s!
-            let sky = 1 - smoothstep(skyStart, skyEnd, y0 + height * 0.5)
+            // Messages fade into the sky by their middle; the selected one stays lit, or a
+            // long one unfolding upward would vanish while its bottom is still in view.
+            let sky = focus == message.id ? 1 : 1 - smoothstep(skyStart, skyEnd, y0 + height * 0.5)
             guard sky > 0.01 else { continue }
             frames[message.id] = PanelFrame(center: surface.point(s, y0 + height / 2), normal: surface.normal(at: s),
                                             width: width, height: height)
@@ -526,11 +530,16 @@ final class RoomScene {
         let w = FrameGeometry.textWidth(label, atlas: atlas, height: 0.28)
         g.text(label, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * (size + 0.45),
                right: cameraRight, up: cameraUp, height: 0.28, color: color, intensity: 0.9 * min(intensity, 1.5) * draw)
+        // A contact: a small ★ centred under the name, then your petname, in their colour.
+        guard person.isContact else { return }
+        let star = "★", sw = FrameGeometry.textWidth(star, atlas: atlas, height: 0.32)
+        g.text(star, atlas: atlas, origin: position - cameraRight * (sw / 2) - cameraUp * (size + 0.82),
+               right: cameraRight, up: cameraUp, height: 0.32, color: color, intensity: 1.1 * min(intensity, 1.5) * draw)
         if let pet = person.petname {
             let petLabel = SafeText.clean(pet)
-            let pw = FrameGeometry.textWidth(petLabel, atlas: atlas, height: 0.22)
-            g.text(petLabel, atlas: atlas, origin: position - cameraRight * (pw / 2) - cameraUp * (size + 0.8),
-                   right: cameraRight, up: cameraUp, height: 0.22, color: theme.primary, intensity: 0.7 * min(intensity, 1.5) * draw)
+            let pw = FrameGeometry.textWidth(petLabel, atlas: atlas, height: 0.24)
+            g.text(petLabel, atlas: atlas, origin: position - cameraRight * (pw / 2) - cameraUp * (size + 1.17),
+                   right: cameraRight, up: cameraUp, height: 0.24, color: color, intensity: 0.8 * min(intensity, 1.5) * draw)
         }
     }
 
