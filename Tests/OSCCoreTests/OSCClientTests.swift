@@ -213,6 +213,14 @@ private func makeClient() throws -> OSCClient {
         #expect(StubServer.seen.last!.body["expires_in"] as? Int == 86400)
     }
 
+    @Test func inviteLengthAndUsesAreSent() async throws {
+        StubServer.reset(loginReplies + [.init(status: 201, json: #"{"code":"zz","uses_left":5,"expires_at":"2026-10-16T00:00:00.000Z"}"#)])
+        let client = try makeClient()
+        _ = try await client.createInvite(room: "r1", uses: 5, expiresIn: 7 * 86400)
+        #expect(StubServer.seen.last!.body["uses"] as? Int == 5)
+        #expect(StubServer.seen.last!.body["expires_in"] as? Int == 604800)
+    }
+
     @Test func roleListingTakesEitherShape() async throws {
         StubServer.reset(loginReplies + [
             .init(json: #"{"roles":[{"identity":"abc","role":"operator","name":"sam"},{"identity":"def","role":"banned"}]}"#),

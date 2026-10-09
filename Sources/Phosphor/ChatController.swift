@@ -910,12 +910,27 @@ final class ChatController {
                 case "/topic":
                     try await updateActiveRoom(RoomUpdate(topic: rest), done: rest.isEmpty ? "topic cleared" : "topic set")
                 case "/invite":
+                    // /invite [uses] [how long], in either order: /invite 5 7d, /invite 2h.
                     guard let activeRoom else { return note(.error, "not in a room") }
-                    let invite = try await session?.client.createInvite(room: activeRoom, uses: Int(rest) ?? 1)
-                    if let invite {
-                        note(.info, "invite code: \(invite.code)  (\(invite.usesLeft ?? 1) use\(invite.usesLeft == 1 ? "" : "s"), 24 h) · they join with /join \(state?.room.name ?? "room") invite \(invite.code)")
+                    var uses = 1, seconds = 86400
+                    for word in rest.split(separator: " ").map(String.init) {
+                        if let n = Int(word) {
+                            guard n >= 1 else { return note(.error, "an invite needs at least 1 use") }
+                            uses = n
+                        } else if let d = Self.parseDuration(word), d > 0 {
+                            seconds = d
+                        } else {
+                            return note(.error, "usage: /invite [uses] [how long, like 30m, 2h, 7d]")
+                        }
                     }
-                case "/op", "/deop", "/voice", "/devoice", "/mute", "/unmute", "/ban", "/unban", "/allow", "/kick":
+                    let invite = try await session?.client.createInvite(room: activeRoom, uses: uses, expiresIn: seconds)
+                    if let invite {
+                        let left = invite.usesLeft ?? uses
+                        let until = invite.expiresAt.map { RoomInfo.duration(Int($0.timeIntervalSinceNow.rounded())) }
+                            ?? RoomInfo.duration(seconds)
+                        note(.info, "invite code: \(invite.code)  (\(left) use\(left == 1 ? "" : "s"), good for \(until)) · they join with /join \(state?.room.name ?? "room") invite \(invite.code)")
+                    }
+                case "/op", "/deop", "/voice", "/devoice", "/mute", "/unmute", "/ban", "/unban", "/allow", "/disallow", "/kick":
                     try await memberCommand(head, rest, labels: labels)
                 case "/nick":
                     if let problem = DisplayName.problem(rest) { return note(.error, problem) }
@@ -995,6 +1010,16 @@ final class ChatController {
         case "/ban": try await client.setRole(room: activeRoom, identity: fp, role: "banned")
         case "/allow": try await client.setRole(room: activeRoom, identity: fp, role: "invited")
         case "/kick": try await client.kick(room: activeRoom, identity: fp, reason: reason.isEmpty ? nil : reason)
+        case "/disallow":
+            // Clearing a role clears whatever it is: only do it if it's really "invited",
+            // so this never demotes an operator or takes someone's voice.
+            let roles = try await client.roles(room: activeRoom)
+            roomRoles[activeRoom] = roles
+            guard let role = roles.first(where: { $0.identity == fp })?.role else {
+                return note(.info, "@\(label) isn't on the invited list")
+            }
+            guard role == .invited else { return note(.error, "@\(label) is \(role.rawValue), not invited: nothing changed") }
+            try await client.clearRole(room: activeRoom, identity: fp)
         default: try await client.clearRole(room: activeRoom, identity: fp)     // deop, devoice, unmute, unban
         }
         note(.info, "\(head.dropFirst()) @\(label): done")
@@ -1004,6 +1029,7 @@ final class ChatController {
         guard let unit = s.last, let n = Int(s.dropLast()) else { return Int(s) }
         switch unit {
         case "h": return n * 3600
+        case "m": return n * 60
         case "d": return n * 86400
         case "w": return n * 604800
         default: return nil
