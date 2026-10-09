@@ -61,7 +61,7 @@ final class DemoFeed {
         }
         let room: [String: Any] = [
             "id": roomID, "name": name, "topic": topic,
-            "visibility": "listed", "access": "open", "speaking": "open", "retention_seconds": 7 * 86400,
+            "visibility": "listed", "access": "open", "speaking": "open", "retention_seconds": Self.retention,
             "permanent": name == "lobby", "created_at": Self.timestamp(Date().addingTimeInterval(-86400 * 23)),
             "latest_seq": seq, "occupant_count": occupants.count, "occupants": occupants,
         ]
@@ -246,12 +246,17 @@ final class DemoFeed {
             "id": id, "room": roomID, "author": ["identity": author.fp, "name": author.name],
             "client": ["name": "demo"], "text": text, "mentions": mentions, "nonce": "demo\(id)nonce",
             "signature": NSNull(), "version": 1, "created_at": Self.timestamp(date), "edited_at": NSNull(),
-            "reactions": [] as [Any], "expires_at": Self.timestamp(Date().addingTimeInterval(3600)),
+            // Expiring when the room's retention says, or every message would look nearly
+            // gone (they fade over the last tenth of it).
+            "reactions": [] as [Any], "expires_at": Self.timestamp(date.addingTimeInterval(Double(Self.retention))),
         ]
     }
 
     /// Room id for a demo room name, the same way `init` makes it, so a listed room and the
     /// feed that serves it once joined share an id.
+    /// How long demo rooms keep messages: seven days, as #lobby's topic says.
+    static let retention = 7 * 86400
+
     /// A made-up fingerprint that looks like a real one (26 base32 characters), the same
     /// for a name every time.
     static func roomID(_ name: String) -> String {

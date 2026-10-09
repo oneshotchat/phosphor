@@ -125,10 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 switch env["PHOSPHOR_CONTACTS_ACTION"] {
                 case "rename": view.devPressReturn()
                 case "remove": self.removeContact(nil)
-                case "card": controller.pageContacts(1)
+                // Through the view's own key handling, as if → (and ↓) were pressed.
+                case "card": view.doCommand(by: #selector(NSResponder.moveRight(_:)))
                 case "place":
-                    controller.pageContacts(1)
-                    controller.movePlaceSelection(1)
+                    view.doCommand(by: #selector(NSResponder.moveRight(_:)))
+                    view.doCommand(by: #selector(NSResponder.moveDown(_:)))
                 default: break
                 }
             }

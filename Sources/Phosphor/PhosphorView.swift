@@ -256,6 +256,11 @@ final class PhosphorView: MTKView, NSTextInputClient {
             controller?.pageInfo(-1)
         case #selector(moveRight(_:)) where controller?.showingRoomInfo == true && input.text.isEmpty:
             controller?.pageInfo(1)
+        case #selector(moveLeft(_:)) where controller?.showingContacts == true && input.text.isEmpty:
+            controller?.pageContacts(-1)
+        case #selector(moveRight(_:)) where controller?.showingContacts == true && input.text.isEmpty:
+            controller?.pageContacts(1)
+        // Otherwise the arrows move the caret (these must come after every wall's ←→).
         case #selector(moveLeft(_:)): input.move(-1)
         case #selector(moveRight(_:)): input.move(1)
         case #selector(moveToBeginningOfLine(_:)), #selector(moveToLeftEndOfLine(_:)): input.moveToStart()
@@ -265,10 +270,6 @@ final class PhosphorView: MTKView, NSTextInputClient {
             if controller?.contactsPage == 1 { controller?.movePlaceSelection(-1) } else { controller?.moveContactSelection(-1) }
         case #selector(moveDown(_:)) where controller?.showingContacts == true && input.completions.isEmpty:
             if controller?.contactsPage == 1 { controller?.movePlaceSelection(1) } else { controller?.moveContactSelection(1) }
-        case #selector(moveLeft(_:)) where controller?.showingContacts == true && input.text.isEmpty:
-            controller?.pageContacts(-1)
-        case #selector(moveRight(_:)) where controller?.showingContacts == true && input.text.isEmpty:
-            controller?.pageContacts(1)
         // On the people wall, ↑↓ pick someone (when nothing's being completed).
         case #selector(moveUp(_:)) where controller?.showingRoomInfo == true && controller?.infoPage == 1 && input.completions.isEmpty:
             controller?.movePersonSelection(-1)
