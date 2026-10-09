@@ -299,6 +299,19 @@ struct RoomInfoScene {
         return t + "…" + mark
     }
 
+    /// "in #a · #b · #c", or as many as fit then "… +N more".
+    private func roomList(_ rooms: [String], height: Float, room: Float) -> String {
+        let all = "in " + rooms.joined(separator: " · ")
+        guard FrameGeometry.textWidth(all, atlas: atlas, height: height) > room else { return all }
+        var shown = rooms.count - 1
+        while shown > 1 {
+            let line = "in " + rooms.prefix(shown).joined(separator: " · ") + " · … +\(rooms.count - shown) more"
+            if FrameGeometry.textWidth(line, atlas: atlas, height: height) <= room { return line }
+            shown -= 1
+        }
+        return "in " + rooms[0] + " · … +\(rooms.count - 1) more"
+    }
+
     /// A person's glyph, then their name in their colour (cut short to `maxWidth`).
     private func drawPerson(_ person: RoomInfo.Person, _ g: inout FrameGeometry, base: SIMD3<Float>, x: Float, y: Float,
                             size: Float, sunk: Float, now: Float, theme: Theme, fade: Float?, maxWidth: Float = .infinity,
@@ -371,10 +384,12 @@ extension RoomInfoScene {
                        sunk: sunk, now: now, theme: theme, fade: visible(detailsY), maxWidth: right - factsWidth - nameX - size,
                        bright: true, dark: row.whereNow.isEmpty)
             text(facts, right - factsWidth, detailsY, factsSize, theme.accent, 0.9)
-            // Every room they're in, as far as we can see; shrinks, then cuts, to fit.
-            let roomsLine = row.whereNow.isEmpty ? "not in any room you can see" : "in " + row.whereNow.joined(separator: " · ")
-            let roomsSize = max(size * 0.62, fitted(roomsLine, size * 0.8, right - nameX))
-            text(cut(roomsLine, roomsSize, right - nameX), nameX, roomsY, roomsSize, theme.primary, row.whereNow.isEmpty ? 0.45 : 0.85)
+            // Every room they're in, as far as we can see: shrinking to fit, and past that as
+            // many as fit and how many more.
+            let roomsSize = max(size * 0.62, fitted("in " + row.whereNow.joined(separator: " · "), size * 0.8, right - nameX))
+            let roomsLine = row.whereNow.isEmpty ? "not in any room you can see"
+                : roomList(row.whereNow, height: roomsSize, room: right - nameX)
+            text(roomsLine, nameX, roomsY, roomsSize, theme.primary, row.whereNow.isEmpty ? 0.45 : 0.85)
             let small = size * 0.62
             text(row.identity, nameX, fingerprintY, small, theme.accent, 0.9)
             text("⌘C copies", right - width("⌘C copies", small), fingerprintY, small, theme.primary, 0.6)

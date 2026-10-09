@@ -119,7 +119,8 @@ final class ChatController {
         var lastSeenRoom: String?
     }
 
-    /// Everyone saved, those visible somewhere first, then by when you last saw them.
+    /// Everyone saved, alphabetically by what you call them (petname, else name): a
+    /// steady order, so rows don't jump about as people come and go.
     var contactRows: [ContactRow] {
         let book = ContactBook.shared
         return book.contacts.values.map { c in
@@ -130,10 +131,10 @@ final class ChatController {
                               lastSeen: whereNow.isEmpty ? c.lastSeen.map { RoomInfo.ago(-$0.timeIntervalSinceNow) } : "now",
                               lastSeenRoom: c.lastSeenRoom)
         }
-        .sorted {
-            if $0.whereNow.isEmpty != $1.whereNow.isEmpty { return !$0.whereNow.isEmpty }
-            let a = book.contact($0.identity)?.lastSeen ?? .distantPast, b = book.contact($1.identity)?.lastSeen ?? .distantPast
-            return a != b ? a > b : $0.label.lowercased() < $1.label.lowercased()
+        .sorted { a, b in
+            let x = (a.petname ?? book.contact(a.identity)?.name ?? a.label).lowercased()
+            let y = (b.petname ?? book.contact(b.identity)?.name ?? b.label).lowercased()
+            return x != y ? x < y : a.identity < b.identity
         }
     }
 
