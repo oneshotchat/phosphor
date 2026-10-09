@@ -695,7 +695,7 @@ final class ChatController {
         listed = DemoFeed.listing(regulars: [neo])
         // Demo contacts live in memory only: neo, about everywhere; someone here under a
         // petname; someone who's left; and someone in a listed room.
-        var seeds: [ContactBook.Contact] = [.init(fingerprint: neo.fp, petname: nil, name: neo.name, added: Date(),
+        var seeds: [ContactBook.Contact] = [.init(fingerprint: neo.fp, petname: "Thomas", name: neo.name, added: Date(),
                                                   lastSeen: Date(), lastSeenRoom: "#lobby")]
         if let lobby = demos[rooms[0]] {
             for (i, person) in lobby.contactSeeds().enumerated() {

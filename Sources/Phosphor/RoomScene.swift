@@ -21,6 +21,8 @@ final class RoomScene {
     private struct PersonVisual {
         let glyph: IdentityGlyph
         var name: String
+        /// Your petname for them, if they're a contact and it differs from their name.
+        var petname: String?
         var joinedAt: Float = -100
         var leftAt: Float?
         var leaveReason: String?
@@ -226,10 +228,12 @@ final class RoomScene {
             if people[fp] == nil || people[fp]?.leftAt != nil {
                 people[fp] = makePerson(fp, name: occupant.name, joinedAt: people[fp]?.leftAt != nil ? now : -100)
             }
-            // Under a glyph there's only room for the name: a contact gets their mark, and
-            // their petname shows on their messages.
+            // Under a glyph: their chosen name, with a contact's mark, and your petname for
+            // them on a line below, so you know who they are whatever they call themselves.
             let short = state.labels[fp] ?? occupant.name
-            people[fp]?.name = ContactBook.shared.isContact(fp) ? short + " ★" : short
+            let contact = ContactBook.shared.contact(fp)
+            people[fp]?.name = contact != nil ? short + " ★" : short
+            people[fp]?.petname = contact?.petname.flatMap { $0.isEmpty || $0 == occupant.name ? nil : $0 }
         }
         people = people.filter { fp, p in state.occupants[fp] != nil || (p.leftAt.map { now - $0 < 2.5 } ?? false) }
 
@@ -522,6 +526,12 @@ final class RoomScene {
         let w = FrameGeometry.textWidth(label, atlas: atlas, height: 0.28)
         g.text(label, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * (size + 0.45),
                right: cameraRight, up: cameraUp, height: 0.28, color: color, intensity: 0.9 * min(intensity, 1.5) * draw)
+        if let pet = person.petname {
+            let petLabel = SafeText.clean(pet)
+            let pw = FrameGeometry.textWidth(petLabel, atlas: atlas, height: 0.22)
+            g.text(petLabel, atlas: atlas, origin: position - cameraRight * (pw / 2) - cameraUp * (size + 0.8),
+                   right: cameraRight, up: cameraUp, height: 0.22, color: theme.primary, intensity: 0.7 * min(intensity, 1.5) * draw)
+        }
     }
 
     private func buildFloor(into g: inout FrameGeometry, theme: Theme, surface: Surface) {
