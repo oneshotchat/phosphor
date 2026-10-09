@@ -142,7 +142,7 @@ final class ChatController {
     func roomsWith(_ fingerprint: String) -> [String] {
         var found: [String] = []
         var seen = Set<String>()
-        for room in rooms {
+        for room in rooms.sorted(by: { a, _ in a == activeRoom }) {          // the room you're looking at first
             guard let s = state(room), s.occupants[fingerprint] != nil else { continue }
             found.append("#" + SafeText.clean(s.room.name))
             seen.insert(s.room.id)
@@ -607,10 +607,13 @@ final class ChatController {
             ("clients", "show and tell: new clients", 3, 4000...9000, 8),
             ("offtopic", "everything else", 1, 9000...20000, 8),
         ]
+        // neo is about: in three of your rooms and a listed one, so a contact in several
+        // rooms shows on the contacts wall.
+        let neo = (fp: Identity.generate().fingerprint, name: "neo")
         for (name, topic, speakers, pace, history) in specs {
             let scaled = Int(Double(pace.lowerBound) * paceScale)...Int(Double(pace.upperBound) * paceScale)
             let feed = DemoFeed(name: name, topic: topic, me: me, myName: self.demoName, speakers: speakers, pace: scaled,
-                                history: history)
+                                history: history, regulars: name == "offtopic" ? [] : [neo])
             feed.onEvent = { [weak self, id = feed.roomID] in self?.handle(.event(room: id, $0)) }
             feed.onSent = { [weak self, id = feed.roomID] in self?.onOwnMessage?(id, $0, false) }
             demos[feed.roomID] = feed
@@ -618,10 +621,11 @@ final class ChatController {
             feed.start()
         }
         activate(rooms[0])
-        listed = DemoFeed.listing()
-        // Demo contacts live in memory only: someone here under a petname, someone who's
-        // left, and someone in a listed room.
-        var seeds: [ContactBook.Contact] = []
+        listed = DemoFeed.listing(regulars: [neo])
+        // Demo contacts live in memory only: neo, about everywhere; someone here under a
+        // petname; someone who's left; and someone in a listed room.
+        var seeds: [ContactBook.Contact] = [.init(fingerprint: neo.fp, petname: nil, name: neo.name, added: Date(),
+                                                  lastSeen: Date(), lastSeenRoom: "#lobby")]
         if let lobby = demos[rooms[0]] {
             for (i, person) in lobby.contactSeeds().enumerated() {
                 seeds.append(.init(fingerprint: person.fp, petname: i == 0 ? person.name.capitalized + " from work" : nil, name: person.name,

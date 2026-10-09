@@ -38,7 +38,10 @@ final class DemoFeed {
         return line
     }
 
-    init(name: String, topic: String, me: String, myName: String, speakers: Int, pace: ClosedRange<Int>, history count: Int = 8) {
+    /// `regulars` are people in this room who are in others too (the same identity), so
+    /// the demo's contacts can be in several rooms at once.
+    init(name: String, topic: String, me: String, myName: String, speakers: Int, pace: ClosedRange<Int>, history count: Int = 8,
+         regulars: [(fp: String, name: String)] = []) {
         self.speakers = max(1, speakers)
         self.me = me
         self.pace = pace
@@ -47,7 +50,8 @@ final class DemoFeed {
         // Two sams on purpose, so tripcodes show up; the rest vary by room.
         var rng = SplitMix64(string: name)
         let names = ["sam", "sam"] + Self.handles.filter { $0 != "sam" }.shuffled(using: &rng).prefix(10)
-        people = [(me, myName)] + names.map { (Identity.generate().fingerprint, $0) }
+        people = [(me, myName)] + regulars + names.map { (Identity.generate().fingerprint, $0) }
+        self.regulars = Set(regulars.map(\.fp))
         present = Set(people.prefix(9).map(\.fp))
 
         // Someone runs each room; in #dev it's you, so the demo shows an operator's view too.
@@ -146,9 +150,11 @@ final class DemoFeed {
 
     private var speakerPool: [(fp: String, name: String)] { Array(people.dropFirst().prefix(speakers)) }
 
+    private var regulars: Set<String> = []
+
     /// People to start the demo's contacts with: someone here, and someone who's left.
     func contactSeeds() -> [(fp: String, name: String)] {
-        let here = people.prefix(present.count).dropFirst().first { $0.name != "sam" }      // not one of the sams
+        let here = people.prefix(present.count).dropFirst().first { $0.name != "sam" && !regulars.contains($0.fp) }
         return [here, people.last].compactMap { $0 }
     }
 
@@ -262,7 +268,8 @@ final class DemoFeed {
 
     /// A made-up public room listing for the browser: busiest first, some needing a key or
     /// an invite.
-    static func listing() -> [Room] {
+    /// `regulars` stand in the first listed room too.
+    static func listing(regulars: [(fp: String, name: String)] = []) -> [Room] {
         let rooms: [(String, String, Int, Int, String)] = [
             ("conformance", "test your client here: say !test", 12, 8, "open"),
             ("protocol", "the spec, line by line", 9, 6, "open"),
@@ -276,9 +283,14 @@ final class DemoFeed {
         return rooms.enumerated().compactMap { index, spec in
             let (name, topic, people, recent, access) = spec
             let offset = index * 11
-            let occupants = (0..<people).map { i in
+            var occupants = (0..<people).map { i in
                 ["identity": Identity.generate().fingerprint, "name": handles[(i * 5 + offset) % handles.count],      // 5 is coprime with 28: no repeats
                  "role": NSNull()] as [String: Any]
+            }
+            if index == 0 {
+                for (i, regular) in regulars.enumerated() where i < occupants.count {
+                    occupants[i] = ["identity": regular.fp, "name": regular.name, "role": NSNull()]
+                }
             }
             return decode(Room.self, [
                 "id": roomID(name), "name": name, "topic": topic, "visibility": "listed", "access": access,

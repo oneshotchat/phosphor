@@ -353,11 +353,12 @@ extension RoomInfoScene {
         let note = "saved on this Mac only"
         text(note, right - width(note, size * 0.7), y, size * 0.7, theme.primary, 0.45)
 
-        // The details strip, fixed at the bottom.
-        let stripTop = pad + lineH * 2.1
+        // The details strip, fixed at the bottom: who and when, every room they're in, and
+        // their fingerprint.
+        let stripTop = pad + lineH * 2.75
         g.line(base + SIMD3(left, stripTop - sunk, 0), base + SIMD3(right, stripTop - sunk, 0), theme.primary,
                intensity: visible(stripTop) == nil ? 0 : 0.35, width: 1)
-        let detailsY = stripTop - lineH * 0.95, fingerprintY = detailsY - lineH * 0.85
+        let detailsY = stripTop - lineH * 0.95, roomsY = detailsY - lineH * 0.8, fingerprintY = roomsY - lineH * 0.75
         if let row = rows.first(where: { $0.identity == selected }) {
             let status = statuses[row.identity].map { $0 == "retired" ? "retired identity" : $0 }
             let seen = row.whereNow.isEmpty
@@ -370,6 +371,10 @@ extension RoomInfoScene {
                        sunk: sunk, now: now, theme: theme, fade: visible(detailsY), maxWidth: right - factsWidth - nameX - size,
                        bright: true, dark: row.whereNow.isEmpty)
             text(facts, right - factsWidth, detailsY, factsSize, theme.accent, 0.9)
+            // Every room they're in, as far as we can see; shrinks, then cuts, to fit.
+            let roomsLine = row.whereNow.isEmpty ? "not in any room you can see" : "in " + row.whereNow.joined(separator: " · ")
+            let roomsSize = max(size * 0.62, fitted(roomsLine, size * 0.8, right - nameX))
+            text(cut(roomsLine, roomsSize, right - nameX), nameX, roomsY, roomsSize, theme.primary, row.whereNow.isEmpty ? 0.45 : 0.85)
             let small = size * 0.62
             text(row.identity, nameX, fingerprintY, small, theme.accent, 0.9)
             text("⌘C copies", right - width("⌘C copies", small), fingerprintY, small, theme.primary, 0.6)
@@ -394,7 +399,7 @@ extension RoomInfoScene {
         text("NAME", nameX, listTop, headingH, theme.primary, 0.5)
         text("WHERE NOW", whereX, listTop, headingH, theme.primary, 0.5)
         text("LAST SEEN", seenX, listTop, headingH, theme.primary, 0.5)
-        if first > 0 { text("↑ \(first) more", right - width("↑ \(first) more", headingH), listTop + lineH * 0.6, headingH, theme.primary, 0.55) }
+        if first > 0 { text("↑ \(first) more", nameX + width("NAME", headingH) + size, listTop, headingH, theme.primary, 0.55) }
         if rows.isEmpty { text("nobody yet", nameX, firstRow, size * 0.9, theme.primary, 0.45) }
 
         y = firstRow
@@ -406,7 +411,9 @@ extension RoomInfoScene {
                        sunk: sunk, now: now, theme: theme, fade: visible(y), maxWidth: whereX - nameX - size * 0.6,
                        bright: isSelected, dark: away)
             let detail = isSelected ? theme.accent : theme.primary
-            let rooms = away ? "—" : cut(row.whereNow.joined(separator: ", "), size * 0.85, seenX - whereX - size * 0.6)
+            // The first room, and how many more (all of them are in the strip when picked).
+            let more = row.whereNow.count > 1 ? " +\(row.whereNow.count - 1)" : ""
+            let rooms = away ? "—" : cut(row.whereNow[0], size * 0.85, seenX - whereX - size * 0.6 - width(more, size * 0.85)) + more
             text(rooms, whereX, y, size * 0.85, detail, away ? 0.5 : 0.9)
             text(row.lastSeen ?? "—", seenX, y, size * 0.85, detail, away ? 0.6 : 0.9)
             y -= lineH
