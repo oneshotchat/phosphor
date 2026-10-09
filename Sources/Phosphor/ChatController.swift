@@ -101,12 +101,19 @@ final class ChatController {
             guard showingContacts else { return }
             help = nil
             showingRoomInfo = false
-            if !oldValue { selectedContact = nil }
+            if !oldValue { selectedContact = nil; contactsPage = 0; selectedPlace = nil }
             noteSightings()
             lookUp(ContactBook.shared.contacts.values.filter { $0.name == nil }.map(\.fingerprint))
         }
     }
-    var selectedContact: String? { didSet { if selectedContact != oldValue { contactPrompt = nil } } }
+    var selectedContact: String? {
+        didSet {
+            guard selectedContact != oldValue else { return }
+            contactPrompt = nil
+            selectedPlace = nil
+            if selectedContact == nil { contactsPage = 0 }      // their wall needs someone
+        }
+    }
 
     /// One row of the contacts wall.
     struct ContactRow: Equatable {
@@ -138,20 +145,83 @@ final class ChatController {
         }
     }
 
-    /// Rooms someone is in that we can see: the ones you're in, then listed rooms (whose
-    /// occupants the public listing shows). Unlisted rooms you aren't in can't be seen.
-    func roomsWith(_ fingerprint: String) -> [String] {
-        var found: [String] = []
+    /// A room someone is in, as the person wall lists it.
+    struct Place: Equatable {
+        var id: String
+        var name: String
+        /// One of your rooms, or a listed room you're not in.
+        var yours: Bool
+        var access: String?
+        var people: Int
+        /// When they last spoke there, from the loaded history (your rooms only).
+        var lastSpoke: String?
+        var shown: String { "#" + name + (yours ? "" : " (listed)") }
+    }
+
+    /// Rooms someone is in that we can see: the ones you're in (the one you're looking at
+    /// first), then listed rooms, whose occupants the public listing shows. Unlisted rooms
+    /// you aren't in can't be seen.
+    func places(of fingerprint: String) -> [Place] {
+        var found: [Place] = []
         var seen = Set<String>()
-        for room in rooms.sorted(by: { a, _ in a == activeRoom }) {          // the room you're looking at first
+        let mine = rooms.filter { $0 == activeRoom } + rooms.filter { $0 != activeRoom }
+        for room in mine {
             guard let s = state(room), s.occupants[fingerprint] != nil else { continue }
-            found.append("#" + SafeText.clean(s.room.name))
+            let spoke = s.orderedMessages.last { $0.author.identity == fingerprint }?.createdAt
+            found.append(Place(id: s.room.id, name: SafeText.clean(s.room.name), yours: true, access: s.room.access,
+                               people: s.occupants.count, lastSpoke: spoke.map { RoomInfo.ago(-$0.timeIntervalSinceNow) }))
             seen.insert(s.room.id)
         }
         for room in listed where !seen.contains(room.id) && room.occupants?.contains(where: { $0.identity == fingerprint }) == true {
-            found.append("#" + SafeText.clean(room.name) + " (listed)")
+            found.append(Place(id: room.id, name: SafeText.clean(room.name), yours: false, access: room.access,
+                               people: room.occupantCount ?? room.occupants?.count ?? 0, lastSpoke: nil))
         }
         return found
+    }
+
+    func roomsWith(_ fingerprint: String) -> [String] { places(of: fingerprint).map(\.shown) }
+
+    /// The picked contact's own wall, if someone's picked.
+    var contactCard: RoomInfoScene.Card? {
+        guard let fp = selectedContact, let row = contactRows.first(where: { $0.identity == fp }),
+              let contact = ContactBook.shared.contact(fp) else { return nil }
+        return RoomInfoScene.Card(row: row, added: contact.added, status: identities[fp]?.status, places: places(of: fp))
+    }
+
+    /// The contacts walls: 0 your contacts, 1 the picked contact's own wall.
+    var contactsPage = 0
+    /// The room picked on a contact's wall (by room id).
+    var selectedPlace: String?
+
+    /// ←→ on the contacts walls; the contact's wall needs someone picked.
+    func pageContacts(_ delta: Int) {
+        if delta > 0, selectedContact == nil { return note(.info, "pick someone first (↑↓)") }
+        contactsPage = max(0, min(1, contactsPage + delta))
+        if contactsPage == 0 { selectedPlace = nil }
+    }
+
+    func movePlaceSelection(_ delta: Int) {
+        guard let fp = selectedContact else { return }
+        let list = places(of: fp)
+        guard !list.isEmpty else { return }
+        let i = list.firstIndex { $0.id == selectedPlace }.map { $0 + delta } ?? (delta > 0 ? 0 : list.count - 1)
+        selectedPlace = list.indices.contains(i) ? list[i].id : nil
+    }
+
+    /// Return on a room on a contact's wall: go there (switching to it, or joining a
+    /// listed room, asking for a key or invite code if it needs one).
+    func goToPlace() {
+        guard let fp = selectedContact, let place = places(of: fp).first(where: { $0.id == selectedPlace }) else { return }
+        showingContacts = false
+        if place.yours { return activate(place.id) }
+        let target = RoomBrowser.Target(name: place.name, id: place.id)
+        Task {
+            switch await joinFromBrowser(target, key: RoomKeychain.key(for: place.id), invite: nil) {
+            case .needsKey: browser.ask(.key(target, wrong: false))
+            case .needsInvite: browser.ask(.invite(target, wrong: false))
+            case .joined, .failed: break
+            }
+        }
     }
 
     /// Records where contacts are seen, so "last seen" means something later.

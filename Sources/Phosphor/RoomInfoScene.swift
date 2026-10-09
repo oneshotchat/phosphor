@@ -1,3 +1,4 @@
+import Foundation
 import simd
 
 /// The room info walls (/room, ⌘I), where the help walls stand and rising out of the
@@ -336,13 +337,39 @@ extension RoomInfoScene {
     /// room info stands. Those visible somewhere now come first, with a bright glyph and
     /// the rooms they're in (yours, and listed rooms); the rest have a dark glyph and when
     /// you last saw them. ↑↓ pick someone for the details strip at the bottom.
-    func buildContacts(into g: inout FrameGeometry, rows: [ChatController.ContactRow], progress: Float, selected: String?,
-                       statuses: [String: String], first: inout Int, theme: Theme) {
-        let risen = HelpScene.rise(0, progress: progress, focus: 0)
-        guard risen > 0.001 else { return }
+    /// The picked contact's own wall: who they are, and every room they're in.
+    struct Card {
+        var row: ChatController.ContactRow
+        var added: Date
+        var status: String?
+        var places: [ChatController.Place]
+    }
+
+    /// Two walls: your contacts, and beside it the picked contact's own wall (→).
+    func buildContacts(into g: inout FrameGeometry, rows: [ChatController.ContactRow], card: Card?, progress: Float,
+                       focus: Float, page: Int, selected: String?, selectedPlace: String?, statuses: [String: String],
+                       first: inout Int, placesFirst: inout Int, theme: Theme) {
+        let gain = g.gain
+        defer { g.gain = gain }
+        for i in 0...1 {
+            let risen = HelpScene.rise(i, progress: progress, focus: focus)
+            guard risen > 0.001 else { continue }
+            g.gain = gain * max(0.35, 1 - abs(Float(i) - focus) * 0.65)
+            if i == 0 {
+                drawContactList(into: &g, rows: rows, risen: risen, isPage: page == 0, selected: selected, statuses: statuses,
+                                first: &first, theme: theme)
+            } else {
+                drawCard(into: &g, card: card, risen: risen, isPage: page == 1, selectedPlace: selectedPlace,
+                         first: &placesFirst, theme: theme)
+            }
+        }
+    }
+
+    private func drawContactList(into g: inout FrameGeometry, rows: [ChatController.ContactRow], risen: Float, isPage: Bool,
+                                 selected: String?, statuses: [String: String], first: inout Int, theme: Theme) {
         let base = Self.base(0)
-        drawFrame(into: &g, base: base, risen: risen, label: "CONTACTS", selected: true, theme: theme,
-                  hint: "↑↓ pick  ·  ⏎ rename  ·  ⌘⌫ remove  ·  esc closes")
+        drawFrame(into: &g, base: base, risen: risen, label: "CONTACTS", selected: isPage, theme: theme,
+                  hint: "↑↓ pick  ·  → their rooms  ·  ⏎ rename  ·  ⌘⌫ remove  ·  esc")
 
         let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
         let sunk = (1 - risen) * h
@@ -435,5 +462,98 @@ extension RoomInfoScene {
         }
         let rest = rows.count - first - shown.count
         if rest > 0 { text("↓ \(rest) more", right - width("↓ \(rest) more", headingH), y + lineH * 0.2, headingH, theme.primary, 0.55) }
+    }
+
+    /// A contact's own wall: their name, petname, since when, status and fingerprint, then
+    /// every room they're in that we can see, with ⏎ to go there.
+    private func drawCard(into g: inout FrameGeometry, card: Card?, risen: Float, isPage: Bool, selectedPlace: String?,
+                          first: inout Int, theme: Theme) {
+        let base = Self.base(1)
+        let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
+        let sunk = (1 - risen) * h
+        let now = AppClock.now
+        let pad: Float = 0.65, size: Float = 0.34, lineH = size * 1.5, headingH = size * 0.7
+        func visible(_ y: Float) -> Float? {
+            let above = y - sunk
+            return above > 0.05 ? min(1, above / 0.8) : nil
+        }
+        func text(_ s: String, _ x: Float, _ y: Float, _ height: Float, _ c: SIMD3<Float>, _ intensity: Float) {
+            guard let fade = visible(y) else { return }
+            g.text(s, atlas: atlas, origin: base + SIMD3(x, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0], height: height,
+                   color: c, intensity: intensity * fade)
+        }
+        func width(_ s: String, _ height: Float) -> Float { FrameGeometry.textWidth(s, atlas: atlas, height: height) }
+        let left = -w + pad, right = w - pad
+
+        guard let card else {
+            drawFrame(into: &g, base: base, risen: risen, label: "THEIR ROOMS", selected: isPage, theme: theme, hint: "← contacts  ·  esc")
+            text("pick a contact (↑↓) to see them here", left, h / 2, size * 0.8, theme.primary, 0.45)
+            return
+        }
+        let name = card.row.label.hasSuffix(" ★") ? String(card.row.label.dropLast(2)) : card.row.label
+        drawFrame(into: &g, base: base, risen: risen, label: cut(name.uppercased(), 1.0, HelpScene.wallWidth + 2), selected: isPage,
+                  theme: theme, hint: "↑↓ pick a room  ·  ⏎ go there  ·  ← contacts  ·  esc")
+
+        // Who: their glyph and name, then the facts, then the whole fingerprint.
+        var y = h - pad - size * 1.5
+        let big = size * 1.5
+        drawPerson(RoomInfo.Person(identity: card.row.identity, label: card.row.label), &g, base: base, x: left, y: y, size: big,
+                   sunk: sunk, now: now, theme: theme, fade: visible(y), maxWidth: right - left - big * 1.3, bright: true,
+                   dark: card.row.whereNow.isEmpty)
+        y -= lineH * 1.05
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("d MMM yyyy")
+        var facts = [card.row.petname.map { "you call them \($0)" }, "a contact since \(f.string(from: card.added))",
+                     card.status.map { $0 == "retired" ? "retired identity" : "\($0) identity" }].compactMap { $0 }
+        if card.places.isEmpty {
+            facts.append(card.row.lastSeen.map { "last seen \($0)" + (card.row.lastSeenRoom.map { " in \($0)" } ?? "") } ?? "not seen yet")
+        }
+        let factsLine = facts.joined(separator: " · ")
+        text(factsLine, left, y, fitted(factsLine, size * 0.75, right - left), theme.primary, 0.7)
+        y -= lineH * 0.8
+        let small = size * 0.62
+        text(card.row.identity, left, y, small, theme.accent, 0.85)
+        text("⌘C copies", right - width("⌘C copies", small), y, small, theme.primary, 0.55)
+        y -= lineH * 0.75
+        if visible(y) != nil {
+            g.line(base + SIMD3(left, y - sunk, 0), base + SIMD3(right, y - sunk, 0), theme.primary, intensity: 0.35, width: 1)
+        }
+
+        // Their rooms, scrolling only when the selection reaches an edge.
+        let placeX = left + size * 1.3, kindX = left + 4.6, peopleX = left + 6.7, spokeX = left + 7.9
+        let listTop = y - lineH * 0.95
+        text("ROOMS · \(card.places.count)", placeX, listTop, headingH, theme.primary, 0.6)
+        if card.places.isEmpty {
+            text("not in any room you can see", placeX, listTop - lineH * 1.05, size * 0.85, theme.primary, 0.45)
+            return
+        }
+        text("PEOPLE", peopleX, listTop, headingH, theme.primary, 0.5)
+        text("THEY SPOKE", spokeX, listTop, headingH, theme.primary, 0.5)
+        let firstRow = listTop - lineH * 1.05
+        let bottom = pad + size * 0.3
+        let capacity = max(1, Int((firstRow - bottom) / lineH) + 1)
+        if let i = card.places.firstIndex(where: { $0.id == selectedPlace }) {
+            if i < first { first = i }
+            if i >= first + capacity { first = i - capacity + 1 }
+        }
+        first = max(0, min(first, card.places.count - capacity))
+        let shown = card.places.dropFirst(first).prefix(capacity)
+        if first > 0 { text("↑ \(first) more", right - width("↑ \(first) more", headingH), listTop + lineH * 0.55, headingH, theme.primary, 0.55) }
+
+        y = firstRow
+        for place in shown {
+            let isSelected = place.id == selectedPlace
+            let color = isSelected ? theme.accent : theme.primary
+            if isSelected { text("▸", left + size * 0.2, y, size, theme.accent, 1.5) }
+            text(cut("#" + place.name, size, kindX - placeX - size * 0.5), placeX, y, size, color, isSelected ? 1.5 : place.yours ? 1.15 : 0.85)
+            var kind = place.yours ? "your room" : "listed"
+            if place.access == "key" { kind += " · key" } else if place.access == "invite" { kind += " · invite" }
+            text(kind, kindX, y, size * 0.75, color, place.yours ? 0.75 : 0.55)
+            text("\(place.people)", peopleX, y, size * 0.85, color, 0.8)
+            text(place.lastSpoke ?? "—", spokeX, y, size * 0.85, color, place.lastSpoke == nil ? 0.45 : 0.8)
+            y -= lineH
+        }
+        let rest = card.places.count - first - shown.count
+        if rest > 0 { text("↓ \(rest) more", right - width("↓ \(rest) more", headingH), y + lineH * 0.25, headingH, theme.primary, 0.55) }
     }
 }

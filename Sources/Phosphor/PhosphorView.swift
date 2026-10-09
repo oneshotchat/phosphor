@@ -226,6 +226,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
                 // Answering a rename or remove prompt.
                 controller?.answerContactPrompt(input.text)
                 if controller?.contactPrompt == nil { input.clear() }
+            } else if input.text.isEmpty, controller?.showingContacts == true, controller?.contactsPage == 1,
+                      controller?.selectedPlace != nil {
+                // Return on one of a contact's rooms: go there.
+                controller?.goToPlace()
             } else if input.text.isEmpty, let petname = controller?.startRename() {
                 // Return on someone picked on a wall: name them, starting from their petname.
                 input.insert(petname)
@@ -256,11 +260,15 @@ final class PhosphorView: MTKView, NSTextInputClient {
         case #selector(moveRight(_:)): input.move(1)
         case #selector(moveToBeginningOfLine(_:)), #selector(moveToLeftEndOfLine(_:)): input.moveToStart()
         case #selector(moveToEndOfLine(_:)), #selector(moveToRightEndOfLine(_:)): input.moveToEnd()
-        // On the contacts wall, ↑↓ pick someone.
+        // On the contacts wall, ↑↓ pick someone; on their own wall, one of their rooms.
         case #selector(moveUp(_:)) where controller?.showingContacts == true && input.completions.isEmpty:
-            controller?.moveContactSelection(-1)
+            if controller?.contactsPage == 1 { controller?.movePlaceSelection(-1) } else { controller?.moveContactSelection(-1) }
         case #selector(moveDown(_:)) where controller?.showingContacts == true && input.completions.isEmpty:
-            controller?.moveContactSelection(1)
+            if controller?.contactsPage == 1 { controller?.movePlaceSelection(1) } else { controller?.moveContactSelection(1) }
+        case #selector(moveLeft(_:)) where controller?.showingContacts == true && input.text.isEmpty:
+            controller?.pageContacts(-1)
+        case #selector(moveRight(_:)) where controller?.showingContacts == true && input.text.isEmpty:
+            controller?.pageContacts(1)
         // On the people wall, ↑↓ pick someone (when nothing's being completed).
         case #selector(moveUp(_:)) where controller?.showingRoomInfo == true && controller?.infoPage == 1 && input.completions.isEmpty:
             controller?.movePersonSelection(-1)
@@ -282,6 +290,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
                 input.updateCompletions(labels: [])
             } else if controller?.help != nil {
                 controller?.help = nil
+            } else if controller?.showingContacts == true, controller?.selectedPlace != nil {
+                controller?.selectedPlace = nil
+            } else if controller?.showingContacts == true, controller?.contactsPage == 1 {
+                controller?.pageContacts(-1)
             } else if controller?.showingContacts == true, controller?.selectedContact != nil {
                 controller?.selectedContact = nil
             } else if controller?.showingContacts == true {

@@ -84,6 +84,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// The contacts wall, in the same spot: how far risen, and its first row shown.
     private var contactsProgress: Float = 0
     private var contactsFirst = 0
+    private var contactsFocus: Float = 0
+    private var placesFirst = 0
+    private var lastContactsPage = 0
     private var wasShowingContacts = false
     private var lastInfoPage = 0
     private var wasShowingInfo = false
@@ -321,17 +324,22 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
         // Contacts: one wall in the same spot, the same flight.
         let showingContacts = controller.showingContacts && !controller.browser.isOpen
-        if showingContacts != wasShowingContacts {
-            wasShowingContacts = showingContacts
-            helpMovedAt = time
-            if showingContacts {
-                ripples.append(FrameGeometry.Ripple(center: RoomInfoScene.base(0), radius: HelpScene.wallWidth / 2,
-                                                    startedAt: time, strength: 0.28))
+        if showingContacts != wasShowingContacts || (showingContacts && controller.contactsPage != lastContactsPage) {
+            if showingContacts, !wasShowingContacts {
+                contactsFocus = Float(controller.contactsPage)
+                for i in 0...1 {
+                    ripples.append(FrameGeometry.Ripple(center: RoomInfoScene.base(i), radius: HelpScene.wallWidth / 2,
+                                                        startedAt: time + 0.06 * Float(i), strength: 0.28))
+                }
             }
+            wasShowingContacts = showingContacts
+            lastContactsPage = controller.contactsPage
+            helpMovedAt = time
         }
         if showingContacts {
-            desiredEye = RoomInfoScene.view(0).eye
-            desiredTarget = RoomInfoScene.view(0).target
+            let view = RoomInfoScene.view(Float(controller.contactsPage))
+            desiredEye = view.eye
+            desiredTarget = view.target
         }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
         // Ease slowly in and out of reading mode and the browser; otherwise follow closely.
@@ -398,9 +406,12 @@ final class Renderer: NSObject, MTKViewDelegate {
         buildInfo(into: &geometry, dt: dt, showing: showingInfo, time: time)
         contactsProgress = simd_clamp(contactsProgress + (showingContacts ? dt / 0.5 : -dt / 0.35), 0, 1)
         if contactsProgress > 0 {
-            infoScene.buildContacts(into: &geometry, rows: controller.contactRows, progress: contactsProgress,
-                                    selected: controller.selectedContact, statuses: controller.identityStatuses,
-                                    first: &contactsFirst, theme: theme)
+            contactsFocus += (Float(controller.contactsPage) - contactsFocus) * min(1, dt * 6)      // with the camera
+            infoScene.buildContacts(into: &geometry, rows: controller.contactRows, card: controller.contactCard,
+                                    progress: contactsProgress, focus: contactsFocus, page: controller.contactsPage,
+                                    selected: controller.selectedContact, selectedPlace: controller.selectedPlace,
+                                    statuses: controller.identityStatuses, first: &contactsFirst, placesFirst: &placesFirst,
+                                    theme: theme)
         }
 
         // HUD in drawable pixels, origin bottom-left.

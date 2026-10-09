@@ -125,6 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 switch env["PHOSPHOR_CONTACTS_ACTION"] {
                 case "rename": view.devPressReturn()
                 case "remove": self.removeContact(nil)
+                case "card": controller.pageContacts(1)
+                case "place":
+                    controller.pageContacts(1)
+                    controller.movePlaceSelection(1)
                 default: break
                 }
             }
