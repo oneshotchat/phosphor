@@ -121,6 +121,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) { [controller] in
                 controller.showingContacts = true
                 for _ in 0..<(env["PHOSPHOR_CONTACTS_SELECT"].flatMap(Int.init) ?? 0) { controller.moveContactSelection(1) }
+                // …then PHOSPHOR_CONTACTS_ACTION: "rename" presses Return, "remove" ⌘⌫.
+                switch env["PHOSPHOR_CONTACTS_ACTION"] {
+                case "rename": view.devPressReturn()
+                case "remove": self.removeContact(nil)
+                default: break
+                }
             }
         }
 
@@ -172,6 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleContacts(_ sender: Any?) { controller.showingContacts.toggle() }
     /// ⌘S on the people wall: save the selected person as a contact.
     @objc func saveContact(_ sender: Any?) { controller.saveSelectedPerson() }
+    /// ⌘⌫ on a picked contact: the input line asks first.
+    @objc func removeContact(_ sender: Any?) {
+        (window.contentView as? PhosphorView)?.clearInput()
+        controller.askRemove()
+    }
     @objc func toggleRoomInfo(_ sender: Any?) {
         if !controller.showingRoomInfo, controller.state == nil { return controller.note(.error, "not in a room") }
         controller.showingRoomInfo.toggle()
@@ -236,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ])
         submenu("Edit", [item("Copy Fingerprint", #selector(copyFingerprint(_:)), "c", target: self),
                          item("Save as Contact", #selector(saveContact(_:)), "s", target: self),
+                         item("Remove Contact…", #selector(removeContact(_:)), String(UnicodeScalar(NSBackspaceCharacter)!), target: self),
                          item("Paste", #selector(PhosphorView.paste(_:)), "v")])
         submenu("View", [
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),

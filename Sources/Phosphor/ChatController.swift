@@ -81,6 +81,7 @@ final class ChatController {
     /// Only one wall view at a time: it replaces help.
     var showingRoomInfo = false {
         didSet {
+            if !showingRoomInfo { contactPrompt = nil }
             guard showingRoomInfo else { return }
             help = nil
             showingContacts = false
@@ -96,6 +97,7 @@ final class ChatController {
     /// The contacts wall (⌘K, /contacts): yours, not the room's, so it stands alone.
     var showingContacts = false {
         didSet {
+            if !showingContacts { contactPrompt = nil }
             guard showingContacts else { return }
             help = nil
             showingRoomInfo = false
@@ -104,7 +106,7 @@ final class ChatController {
             lookUp(ContactBook.shared.contacts.values.filter { $0.name == nil }.map(\.fingerprint))
         }
     }
-    var selectedContact: String?
+    var selectedContact: String? { didSet { if selectedContact != oldValue { contactPrompt = nil } } }
 
     /// One row of the contacts wall.
     struct ContactRow: Equatable {
@@ -172,6 +174,69 @@ final class ChatController {
         if let selectedContact { lookUp([selectedContact]) }
     }
 
+    /// Renaming or removing a contact right on the walls: the input line asks, Return
+    /// answers, Esc cancels.
+    enum ContactPrompt: Equatable {
+        case rename(String, label: String)
+        case remove(String, label: String)
+
+        var prompt: String {
+            switch self {
+            case .rename(_, let label): "petname for \(label) › "
+            case .remove(_, let label): "remove \(label) from contacts?  ⏎ yes · esc no "
+            }
+        }
+    }
+    var contactPrompt: ContactPrompt?
+
+    /// The person picked on whichever wall is up: contacts, or a room's people.
+    private var pickedPerson: String? {
+        if showingContacts { return selectedContact }
+        if showingRoomInfo, infoPage == 1 { return selectedPerson }
+        return nil
+    }
+
+    private func plainName(_ fp: String) -> String {
+        let name = rooms.lazy.compactMap { self.state($0)?.occupants[fp]?.name }.first
+            ?? ContactBook.shared.contact(fp)?.name ?? identities[fp]?.name
+            ?? state?.orderedMessages.last(where: { $0.author.identity == fp })?.author.name
+        return SafeText.clean(name ?? String(fp.prefix(8)))
+    }
+
+    /// Return on a picked person: name them (saving them first if they aren't a contact).
+    /// Gives the text to start the input with: their current petname.
+    func startRename() -> String? {
+        guard let fp = pickedPerson else { return nil }
+        if !ContactBook.shared.isContact(fp) { saveContact(fp, petname: nil, quietly: true) }
+        contactPrompt = .rename(fp, label: plainName(fp))
+        return ContactBook.shared.contact(fp)?.petname ?? ""
+    }
+
+    /// ⌘⌫ on a picked contact: ask before forgetting them.
+    func askRemove() {
+        guard let fp = pickedPerson, ContactBook.shared.isContact(fp) else {
+            return note(.info, showingContacts || showingRoomInfo ? "pick a contact first (↑↓)" : "open your contacts (⌘K) and pick someone")
+        }
+        contactPrompt = .remove(fp, label: plainName(fp))
+    }
+
+    /// Return in a contact prompt.
+    func answerContactPrompt(_ text: String) {
+        guard let prompt = contactPrompt else { return }
+        switch prompt {
+        case .rename(let fp, _):
+            let petname = text.trimmingCharacters(in: .whitespaces)
+            if let problem = petname.isEmpty ? nil : DisplayName.problem(petname) { return note(.error, "petname: \(problem)") }
+            contactPrompt = nil
+            saveContact(fp, petname: petname)
+        case .remove(let fp, _):
+            contactPrompt = nil
+            ContactBook.shared.remove(fp)
+            if selectedContact == fp { selectedContact = nil }
+            note(.info, "\(plainName(fp)) removed from contacts")
+        }
+    }
+
     /// ⌘S on the people wall: save the selected person (no petname yet).
     func saveSelectedPerson() {
         guard showingRoomInfo, infoPage == 1, let fp = selectedPerson else {
@@ -180,16 +245,17 @@ final class ChatController {
         saveContact(fp, petname: nil)
     }
 
-    private func saveContact(_ fp: String, petname: String?) {
+    private func saveContact(_ fp: String, petname: String?, quietly: Bool = false) {
         let occupant = rooms.lazy.compactMap { self.state($0)?.occupants[fp] }.first
         let name = occupant?.name ?? identities[fp]?.name ?? state?.orderedMessages.last(where: { $0.author.identity == fp })?.author.name
         let known = ContactBook.shared.isContact(fp)
         ContactBook.shared.save(fp, petname: petname, name: name, seenIn: occupant != nil ? state.map { "#" + $0.room.name } : nil)
         let shown = SafeText.clean(name ?? String(fp.prefix(8)))
+        if quietly { return }
         if let petname, !petname.isEmpty {
             note(.info, "\(shown) saved as \(SafeText.clean(petname)) ★")
         } else {
-            note(.info, known ? "\(shown): petname cleared" : "\(shown) saved as a contact ★ · /contact name gives them a petname")
+            note(.info, known ? "\(shown): no petname" : "\(shown) saved as a contact ★ · ⏎ on them gives a petname")
         }
     }
 
@@ -230,7 +296,7 @@ final class ChatController {
 
     /// The person picked with ↑↓ on the people wall: their full fingerprint shows, and
     /// ⌘C copies it.
-    var selectedPerson: String?
+    var selectedPerson: String? { didSet { if selectedPerson != oldValue { contactPrompt = nil } } }
 
     func movePersonSelection(_ delta: Int) {
         guard let people = roomInfo?.everyone, !people.isEmpty else { return }

@@ -73,7 +73,7 @@ struct HUD {
         }
 
         // Input box, bottom; it grows upward for multi-line messages (⇧⏎).
-        let prompt = controller.browser.isOpen ? controller.browser.inputPrompt : "\(room) › "
+        let prompt = controller.browser.isOpen ? controller.browser.inputPrompt : controller.contactPrompt?.prompt ?? "\(room) › "
         let textX = mx + 12 * scale
         let startX = textX + width(prompt, 16)
         let available = viewport.x - mx - 12 * scale - startX

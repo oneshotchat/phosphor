@@ -52,7 +52,7 @@ struct RoomInfoScene {
         g.text(label, atlas: atlas, origin: base + SIMD3(-nameWidth / 2, 0.03, 1.1 + nameSize), right: [1, 0, 0],
                up: [0, 0, -1], height: nameSize, color: color, intensity: (selected ? 1.6 : 0.8) * max(0.3, risen))
         if selected {
-            let hint = customHint ?? (label == "PEOPLE" ? "↑↓ pick someone  ·  ⌘S saves  ·  ← room  ·  esc closes"
+            let hint = customHint ?? (label == "PEOPLE" ? "↑↓ pick  ·  ⏎ save / rename  ·  ← room  ·  esc closes"
                                                         : "→ people  ·  ⌘C copies fingerprint  ·  esc closes")
             let hw = FrameGeometry.textWidth(hint, atlas: atlas, height: 0.5)
             g.text(hint, atlas: atlas, origin: base + SIMD3(-hw / 2, 0.03, 2.1 + nameSize + 0.5), right: [1, 0, 0],
@@ -329,7 +329,7 @@ extension RoomInfoScene {
         guard risen > 0.001 else { return }
         let base = Self.base(0)
         drawFrame(into: &g, base: base, risen: risen, label: "CONTACTS", selected: true, theme: theme,
-                  hint: "↑↓ pick someone  ·  ⌘C copies  ·  esc closes")
+                  hint: "↑↓ pick  ·  ⏎ rename  ·  ⌘⌫ remove  ·  esc closes")
 
         let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
         let sunk = (1 - risen) * h
@@ -372,8 +372,9 @@ extension RoomInfoScene {
             text(facts, right - factsWidth, detailsY, factsSize, theme.accent, 0.9)
             let small = size * 0.62
             text(row.identity, nameX, fingerprintY, small, theme.accent, 0.9)
+            text("⌘C copies", right - width("⌘C copies", small), fingerprintY, small, theme.primary, 0.6)
         } else if rows.isEmpty {
-            text("save someone from a room's people wall (⌘I, →, ↑↓, ⌘S)", nameX, detailsY, size * 0.8, theme.primary, 0.5)
+            text("save someone from a room's people wall (⌘I, →, ↑↓, ⏎)", nameX, detailsY, size * 0.8, theme.primary, 0.5)
         } else {
             text("↑↓ pick someone to see their fingerprint", nameX, detailsY, size * 0.8, theme.primary, 0.45)
         }

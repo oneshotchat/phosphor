@@ -176,6 +176,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
         }
     }
 
+    func clearInput() {
+        input.clear()
+    }
+
     /// Dev: puts text in the input as if typed (snapshots of the composer).
     func devType(_ text: String) {
         input.insert(text)
@@ -218,7 +222,14 @@ final class PhosphorView: MTKView, NSTextInputClient {
             input.clear()
             return
         case #selector(insertNewline(_:)):
-            if input.wantsCompletion {
+            if controller?.contactPrompt != nil {
+                // Answering a rename or remove prompt.
+                controller?.answerContactPrompt(input.text)
+                if controller?.contactPrompt == nil { input.clear() }
+            } else if input.text.isEmpty, let petname = controller?.startRename() {
+                // Return on someone picked on a wall: name them, starting from their petname.
+                input.insert(petname)
+            } else if input.wantsCompletion {
                 input.acceptCompletion()
             } else if let controller {
                 controller.submit(input.text, labels: labelsToFingerprints())
@@ -264,7 +275,10 @@ final class PhosphorView: MTKView, NSTextInputClient {
         case #selector(scrollPageDown(_:)), #selector(pageDown(_:)):
             renderer?.camera.liftTarget -= 8
         case #selector(cancelOperation(_:)):
-            if !input.completions.isEmpty {
+            if controller?.contactPrompt != nil {
+                controller?.contactPrompt = nil
+                input.clear()
+            } else if !input.completions.isEmpty {
                 input.updateCompletions(labels: [])
             } else if controller?.help != nil {
                 controller?.help = nil
@@ -293,6 +307,7 @@ final class PhosphorView: MTKView, NSTextInputClient {
             browser.setQuery(input.text)      // in the browser, typing filters rooms
             return
         }
+        if controller?.contactPrompt != nil { return input.updateCompletions(labels: []) }   // a petname, not a command or mention
         let me = controller?.me
         input.updateCompletions(labels: labelsToFingerprints().filter { $0.value != me }.map(\.key),
                                 commands: Help.names(forOperator: controller?.isOperator ?? false))
@@ -308,6 +323,7 @@ final class PhosphorView: MTKView, NSTextInputClient {
     // MARK: NSTextInputClient
 
     func insertText(_ string: Any, replacementRange: NSRange) {
+        if case .remove = controller?.contactPrompt { return }       // a yes/no question: ⏎ or esc
         input.marked = ""
         input.insert((string as? NSAttributedString)?.string ?? string as? String ?? "")
         refreshCompletions()
