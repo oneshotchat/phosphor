@@ -50,7 +50,7 @@ Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed 
 | ⌘K | Contacts |
 | ⌘W | Leave room |
 | ⌘G | Ring or row layout |
-| ⌘R | Reading mode |
+| ⌘R | Reading mode: face the selected message (scroll to read down a long one) |
 | ⌘↓ | Jump to latest |
 | ⌘0 | Reset view |
 | ⌘T | Next colour theme |

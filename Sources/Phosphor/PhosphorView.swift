@@ -151,6 +151,9 @@ final class PhosphorView: MTKView, NSTextInputClient {
             renderer.camera.zoom(by: dy * 0.008)
         } else if abs(dx) > abs(dy) {
             renderer.camera.orbit(dx: dx, dy: 0)
+        } else if renderer.readingMode, renderer.readingScrollLimit > 0 {
+            // Reading a message too tall for the screen: scroll through it.
+            renderer.readingScroll -= dy * 0.03
         } else {
             renderer.readingMode = false
             renderer.camera.liftTarget += dy * 0.03

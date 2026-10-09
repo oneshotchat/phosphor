@@ -31,8 +31,16 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// Off while a tour runs, so its changes don't stick to your next launch.
     var rememberSettings = true
     var readingMode = false {
-        didSet { readingToggledAt = AppClock.now }
+        didSet {
+            readingToggledAt = AppClock.now
+            readingScroll = 0
+        }
     }
+    /// How far down a message too tall for the screen reading mode has scrolled, and
+    /// how far it can (0 when the message fits).
+    var readingScroll: Float = 0
+    private(set) var readingScrollLimit: Float = 0
+    private var readingMessage: Int?
     private var readingToggledAt: Float = -100
     private var wasBrowsing = false
     /// The message the view is pinned to while scrolled up, and where it was last frame.
@@ -276,11 +284,20 @@ final class Renderer: NSObject, MTKViewDelegate {
             desiredTarget = Self.overviewTarget
             desiredEye = desiredTarget + SIMD3(0, sin(Self.overviewPitch), cos(Self.overviewPitch)) * Self.overviewDistance
         } else if readingMode, let scene = activeScene, let id = controller.focus ?? scene.newestVisible, let panel = scene.panelFrames[id] {
-            // Back off until the whole panel fits on screen, with a margin.
+            // Back off until the whole panel fits on screen, with a margin. A message too
+            // tall for that (a long one, unfolded) fits its width instead, starting at
+            // its top; scrolling reads down it.
+            if readingMessage != id { readingMessage = id; readingScroll = 0 }
             let fitWidth = panel.width / 2 * 1.2 / (tan(fovy / 2) * aspect)
             let fitHeight = panel.height / 2 * 1.6 / tan(fovy / 2)
-            desiredEye = panel.center + panel.normal * max(4, fitWidth, fitHeight)
-            desiredTarget = panel.center
+            let maxDistance = max(4, fitWidth, 14)
+            let distance = min(max(4, fitWidth, fitHeight), maxDistance)
+            let visible = 2 * distance * tan(fovy / 2) / 1.3              // panel height on screen, with a margin
+            readingScrollLimit = max(0, panel.height - visible)
+            readingScroll = simd_clamp(readingScroll, 0, readingScrollLimit)
+            let center = panel.center + SIMD3(0, readingScrollLimit / 2 - readingScroll, 0)
+            desiredEye = center + panel.normal * distance
+            desiredTarget = center
         }
         // Help: fly to the wall being read; ←→ fly along the row.
         let helping = controller.help != nil && !controller.browser.isOpen && Self.helpIn3D
@@ -423,7 +440,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             let hint: String? = activeScene?.isLifted != true || liftPastTop ? nil
                 : unseen > 0 ? "↓ \(unseen) new  ·  ⌘↓ latest" : "scrolled up  ·  ⌘↓ latest"
             hud.build(into: &hudGeometry, viewport: viewport, scale: pixelScale, controller: controller, input: input,
-                      theme: theme, hint: hint)
+                      theme: theme, hint: hint, focusIsLong: controller.focus.map { activeScene?.isLong($0) ?? false } ?? false)
             if controller.browser.isOpen {
                 hud.buildBrowser(into: &hudGeometry, viewport: viewport, scale: pixelScale, browser: controller.browser, theme: theme)
             }

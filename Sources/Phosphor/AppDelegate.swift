@@ -152,6 +152,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let typed = env["PHOSPHOR_TYPE"] {
             view.devType(typed.replacingOccurrences(of: "\\n", with: "\n"))
         }
+        // …and send it after PHOSPHOR_SEND_AT seconds, then select it if PHOSPHOR_SELECT_SENT is set.
+        if let at = env["PHOSPHOR_SEND_AT"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [view, renderer, controller] in
+                view.devPressReturn()
+                if env["PHOSPHOR_SELECT_SENT"] != nil {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        // Your message, not just the newest (the demo may have said something since).
+                        controller.focus = controller.state?.orderedMessages.last { $0.author.identity == controller.me }?.id
+                        if env["PHOSPHOR_READ_SENT"] != nil { renderer?.readingMode = true }       // …and read it (⌘R)
+                    }
+                }
+            }
+        }
 
         // Dev: switch to the next room after a delay, to capture the transition.
         if let delay = env["PHOSPHOR_SWITCH"].flatMap(Double.init) {

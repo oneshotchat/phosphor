@@ -340,8 +340,13 @@ final class RoomScene {
         var cursor = baseY
         var nearest: (id: Int, distance: Float)?
         for message in newestFirst {
-            let textLines = lines(for: message, labels: labels, maxWidth: maxWidth - pad * 2)
-            let height = panelHeight(lines: textLines.count, reactions: hasReactions(message))
+            // Long messages show their first lines and how many more; the selected one
+            // unfolds in full (the panels above make room).
+            let allLines = lines(for: message, labels: labels, maxWidth: maxWidth - pad * 2)
+            let folded = allLines.count > maxLines && focus != message.id
+            let textLines = folded ? Array(allLines.prefix(maxLines - 1)) : allLines
+            let hidden = folded ? allLines.count - textLines.count : 0
+            let height = panelHeight(lines: textLines.count + (hidden > 0 ? 1 : 0), reactions: hasReactions(message))
             // Same height whether the room is active or in the background, so switching
             // only moves rooms, never their messages.
             let bottom = cursor
@@ -362,7 +367,8 @@ final class RoomScene {
             }
             let label = labelLine(message, labels: labels, origin: origin)
             let width = min(maxWidth, max(textLines.map { textWidth($0, height: textHeight) }.max() ?? 0,
-                                          textWidth(label, height: labelHeight)) + pad * 2)
+                                          textWidth(label, height: labelHeight),
+                                          hidden > 0 ? textWidth(Self.moreHint(hidden), height: labelHeight) : 0) + pad * 2)
 
             // Theirs on the left, yours on the right.
             let sideAnchor = message.author.identity == me ? half - width / 2 : -half + width / 2
@@ -379,7 +385,7 @@ final class RoomScene {
             guard sky > 0.01 else { continue }
             frames[message.id] = PanelFrame(center: surface.point(s, y0 + height / 2), normal: surface.normal(at: s),
                                             width: width, height: height)
-            buildPanel(into: &g, message: message, lines: textLines, label: label, s0: s - width / 2, s1: s + width / 2,
+            buildPanel(into: &g, message: message, lines: textLines, hidden: hidden, label: label, s0: s - width / 2, s1: s + width / 2,
                        y0: y0, y1: y0 + height, surface: surface, sky: sky, author: positions[message.author.identity],
                        theme: theme, me: me, origin: origin, focused: focus == message.id, eye: eye, now: now,
                        retention: state.room.retentionSeconds)
@@ -390,7 +396,7 @@ final class RoomScene {
         referenceMessage = nearest?.id
     }
 
-    private func buildPanel(into g: inout FrameGeometry, message: Message, lines textLines: [String], label: String,
+    private func buildPanel(into g: inout FrameGeometry, message: Message, lines textLines: [String], hidden: Int, label: String,
                             s0: Float, s1: Float, y0: Float, y1: Float, surface: Surface, sky: Float,
                             author: SIMD3<Float>?, theme: Theme, me: String, origin: String, focused: Bool,
                             eye: SIMD3<Float>, now: Float, retention: Int?) {
@@ -450,6 +456,13 @@ final class RoomScene {
             g.surfaceText(shown, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: textHeight,
                           color: theme.primary, intensity: bright, reveal: glitching ? .infinity : reveal, eye: eye)
             reveal -= Float(line.count)
+            baseline -= textHeight * 1.25
+        }
+        if hidden > 0 {
+            // A folded long message says how much is left and how to read it.
+            g.surfaceText(Self.moreHint(hidden), atlas: atlas, surface: surface,
+                          s: textS, baseline: baseline, height: labelHeight, color: theme.accent, intensity: 0.8 * bright,
+                          reveal: reveal, eye: eye)
             baseline -= textHeight * 1.25
         }
         if hasReactions(message) {
@@ -551,6 +564,11 @@ final class RoomScene {
         return line + "  [\(m.id)]"
     }
 
+    static func moreHint(_ hidden: Int) -> String { "… \(hidden) more line\(hidden == 1 ? "" : "s") · ↑↓ select it to read all" }
+
+    /// Whether a message is too long to show in full unless it's selected.
+    func isLong(_ id: Int) -> Bool { (panels[id]?.lines.count ?? 0) > maxLines }
+
     private func hasReactions(_ m: Message) -> Bool { !(m.reactions ?? []).isEmpty }
 
     private func panelHeight(lines: Int, reactions: Bool) -> Float {
@@ -612,10 +630,6 @@ final class RoomScene {
                 }
             }
             out.append(line)
-        }
-        if out.count > maxLines {
-            out = Array(out.prefix(maxLines))
-            out[maxLines - 1] += " …"
         }
         return out
     }

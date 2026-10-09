@@ -8,7 +8,7 @@ struct HUD {
     let atlas: GlyphAtlas
 
     func build(into g: inout FrameGeometry, viewport: SIMD2<Float>, scale: Float, controller: ChatController,
-               input: InputLine, theme: Theme, hint: String?) {
+               input: InputLine, theme: Theme, hint: String?, focusIsLong: Bool = false) {
         let now = AppClock.now
         let right = SIMD3<Float>(1, 0, 0), up = SIMD3<Float>(0, 1, 0)
         // Stay clear of the tube's curved edges.
@@ -168,7 +168,8 @@ struct HUD {
             text(hint, x1 - 12 * scale - w, y1 + 10 * scale, 13, theme.accent, 1.2)
         }
         if input.completions.isEmpty, let focus = controller.focus {
-            text("selected [\(focus)]  ·  /react 👍  ·  /edit text  ·  ↑↓ move  ·  esc clear", x0 + 12 * scale, cy, 12, theme.accent, 0.9)
+            let read = focusIsLong ? "  ·  ⌘R reads it all" : ""
+            text("selected [\(focus)]\(read)  ·  /react 👍  ·  /edit text  ·  ↑↓ move  ·  esc clear", x0 + 12 * scale, cy, 12, theme.accent, 0.9)
         }
     }
 
