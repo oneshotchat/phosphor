@@ -67,14 +67,13 @@ struct RoomInfoScene {
         let sunk = (1 - risen) * h
         let now = AppClock.now
 
-        // Layout in "lines", scaled down to fit if an operator's extra lines need it.
+        // One text size for every room, whoever you are there: sized for the fullest wall
+        // (an operator's change lines and a topic wrapped to three lines), so moving
+        // between rooms never resizes it.
         let showChange = info.isOperator
-        // The topic wraps (topics run to 200 bytes); measured at the largest size, which
-        // only over-counts if the wall then shrinks the text.
-        let topicLines = info.topic.map { wrapped($0, height: 0.38 * 0.8, width: w * 2 - 1.3) } ?? []
-        let lineCount = 4.0 + Float(topicLines.count) * 0.9 + Float(info.settings.count) * (showChange ? 1.75 : 1.15) + 0.6 + 4 * 1.15
+        let fullest = 4.0 + 3 * 0.9 + Float(info.settings.count) * 1.75 + 0.6 + 4 * 1.15
         let pad: Float = 0.65
-        let size = min(0.38, (h - pad * 2) / lineCount / 1.3)
+        let size = min(0.38, (h - pad * 2) / fullest / 1.3)
         let lineH = size * 1.3
         func visible(_ y: Float) -> Float? {
             let above = y - sunk
@@ -96,8 +95,8 @@ struct RoomInfoScene {
         let iconX = left + size * 0.55, labelX = left + size * 1.9, valueX = labelX + width("VISIBILITY", size * 0.75) + size * 1.2
 
         // Name and lifetime, then the topic; the whole block centred on the wall.
-        let used = lineCount * lineH
-        var y = min(h - pad, (h + used) / 2) - size * 1.5
+        // Anchored to the top, so the name and settings start in the same place every time.
+        var y = h - pad - size * 1.5
         text(info.name, left, y, fitted(info.name, size * 1.5, w * 2 - pad * 2), theme.accent, 1.5)
         // How long the room has been and will be around, on its own line: beside the name
         // it collides with long names.
