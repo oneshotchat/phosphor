@@ -46,12 +46,13 @@ final class ContactBook {
     func isContact(_ fingerprint: String) -> Bool { contacts[fingerprint] != nil }
 
     /// How a person's name shows anywhere: their label (with its tripcode), then your
-    /// petname in brackets if it's different, then the contact mark. "neo (Jared) ★".
+    /// petname in brackets if it's different: "neo (Jared)". The ★ isn't text: it's drawn
+    /// beside the name (Icon.mark), so a name with a ★ in it can't pass for a contact.
     func display(_ fingerprint: String, label: String, name: String? = nil) -> String {
         guard let contact = contacts[fingerprint] else { return label }
         let own = name ?? String(label.split(separator: "#").first ?? Substring(label))     // without its tripcode
-        if let pet = contact.petname, !pet.isEmpty, pet != own, pet != label { return "\(label) (\(pet)) ★" }
-        return "\(label) ★"
+        if let pet = contact.petname, !pet.isEmpty, pet != own, pet != label { return "\(label) (\(pet))" }
+        return label
     }
 
     /// Every label in a room's label map, decorated.

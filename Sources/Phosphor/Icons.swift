@@ -10,7 +10,10 @@ enum Icon {
     case hourglass, infinity         // kept for a while, kept forever
     case person, crown               // people here, operators
     case pen, penCrossed             // signing, not signing
-    case shield                      // a server admin (drawn by us: a name can't imitate it)
+    case star, shield                // a contact, a server admin: drawn by us, so a name can't imitate them
+
+    /// The one mark beside a person: a server admin's shield, else a contact's star.
+    static func mark(admin: Bool, contact: Bool) -> Icon? { admin ? .shield : contact ? .star : nil }
 
     func draw(into g: inout FrameGeometry, at center: SIMD3<Float>, size: Float, right: SIMD3<Float>, up: SIMD3<Float>,
               color: SIMD3<Float>, intensity: Float) {
@@ -68,9 +71,13 @@ enum Icon {
             path(arc(0, -0.95, 0.8, 0.85, from: 0.15, to: .pi - 0.15))
         case .crown:
             path([(-0.9, -0.6), (0.9, -0.6), (0.95, 0.55), (0.45, 0.0), (0, 0.75), (-0.45, 0.0), (-0.95, 0.55)], closed: true)
+        case .star:
+            path((0..<10).map { i in
+                let a = Float.pi / 2 + Float(i) * .pi / 5, r: Float = i % 2 == 0 ? 1.0 : 0.42
+                return (r * cos(a), r * sin(a) - 0.06)
+            }, closed: true)
         case .shield:
-            path([(-0.75, 0.85), (0, 1.0), (0.75, 0.85), (0.75, 0.05), (0, -1.0), (-0.75, 0.05)], closed: true)
-            path([(0, 0.62), (0, -0.55)])
+            path([(-0.72, 0.82), (0, 0.98), (0.72, 0.82), (0.72, 0.05), (0, -0.98), (-0.72, 0.05)], closed: true)
         case .pen, .penCrossed:
             path([(-0.75, -0.75), (-0.55, -0.15), (0.55, 0.95), (0.95, 0.55), (-0.15, -0.55)], closed: true)
             path([(-0.75, -0.75), (-0.35, -0.35)])

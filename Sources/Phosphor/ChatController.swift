@@ -383,9 +383,9 @@ final class ChatController {
         let shown = SafeText.clean(name ?? String(fp.prefix(8)))
         if quietly { return }
         if let petname, !petname.isEmpty {
-            note(.info, "\(shown) saved as \(SafeText.clean(petname)) ★")
+            note(.info, "\(shown) saved as \(SafeText.clean(petname))")
         } else {
-            note(.info, known ? "\(shown): no petname" : "\(shown) saved as a contact ★ · ⏎ on them gives a petname")
+            note(.info, known ? "\(shown): no petname" : "\(shown) saved as a contact · ⏎ on them gives a petname")
         }
     }
 

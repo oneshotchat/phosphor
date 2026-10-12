@@ -733,7 +733,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             placed.append(BrowserScene.Placed(room: room, origin: origin))
         }
         ghostOrigins = origins
-        browserScene.build(into: &g, rooms: placed, selected: browser.isOpen ? selected : nil, alpha: ghostAlpha, theme: theme)
+        browserScene.build(into: &g, rooms: placed, selected: browser.isOpen ? selected : nil, alpha: ghostAlpha, theme: theme,
+                           admins: controller.admins)
     }
 
     /// The highest the view may fly: the top of everything loaded.

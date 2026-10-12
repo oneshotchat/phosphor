@@ -35,6 +35,9 @@ final class RoomScene {
     /// their name and under their glyph, which no name can imitate.
     var admins: Set<String> = []
 
+    /// The mark for a person: an admin's shield, else a contact's star.
+    private func mark(_ fp: String) -> Icon? { Icon.mark(admin: admins.contains(fp), contact: ContactBook.shared.isContact(fp)) }
+
     private struct PanelVisual {
         var arrivedAt: Float = -100
         var glitchAt: Float = -100
@@ -383,7 +386,7 @@ final class RoomScene {
             }
             let label = labelLine(message, labels: labels, origin: origin)
             let labelWidth = textWidth(label.name + label.rest, height: labelHeight)
-                + (admins.contains(message.author.identity) ? labelHeight * 1.4 : 0)
+                + (mark(message.author.identity) != nil ? labelHeight * 1.6 : 0)
             let width = min(maxWidth, max(textLines.map { textWidth($0, height: textHeight) }.max() ?? 0,
                                           labelWidth,
                                           hidden > 0 ? textWidth(Self.moreHint(hidden), height: labelHeight) : 0) + pad * 2)
@@ -469,12 +472,13 @@ final class RoomScene {
         g.surfaceText(label.name, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: labelHeight,
                       color: labelColor, intensity: 0.9 * bright, eye: eye)
         var restS = textS + textWidth(label.name, height: labelHeight)
-        if admins.contains(message.author.identity) {
-            // A server admin's shield, drawn by us right after the name.
-            let at = restS + labelHeight * 0.7
-            Icon.shield.draw(into: &g, at: surface.point(at, baseline + labelHeight * 0.38), size: labelHeight * 0.5,
-                             right: surface.tangent(at: at), up: [0, 1, 0], color: theme.accent, intensity: 1.4 * bright)
-            restS += labelHeight * 1.4
+        if let icon = mark(message.author.identity) {
+            // An admin's shield or a contact's star, drawn by us right after the name.
+            let at = restS + labelHeight * 0.85
+            icon.draw(into: &g, at: surface.point(at, baseline + labelHeight * 0.36), size: labelHeight * 0.38,
+                      right: surface.tangent(at: at), up: [0, 1, 0], color: labelColor,
+                      intensity: 1.3 * bright)
+            restS += labelHeight * 1.6
         }
         g.surfaceText(label.rest, atlas: atlas, surface: surface, s: restS, baseline: baseline, height: labelHeight,
                       color: labelColor, intensity: 0.9 * bright, eye: eye)
@@ -554,25 +558,11 @@ final class RoomScene {
         let w = FrameGeometry.textWidth(label, atlas: atlas, height: 0.28)
         g.text(label, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * (size + 0.45),
                right: cameraRight, up: cameraUp, height: 0.28, color: color, intensity: 0.9 * min(intensity, 1.5) * draw)
-        // Under the name, centred: a contact's ★ (in their colour) and a server admin's
-        // shield (drawn, in the accent colour), side by side if both; then your petname.
-        let isAdmin = admins.contains(fp)
-        guard person.isContact || isAdmin else { return }
-        let starH: Float = 0.32, shieldW: Float = 0.34, gap: Float = 0.12
-        let starW = person.isContact ? FrameGeometry.textWidth("★", atlas: atlas, height: starH) : 0
-        let total = starW + (isAdmin ? shieldW : 0) + (person.isContact && isAdmin ? gap : 0)
-        let markY = position - cameraUp * (size + 0.82)
-        var x = -total / 2
-        if person.isContact {
-            g.text("★", atlas: atlas, origin: markY + cameraRight * x, right: cameraRight, up: cameraUp, height: starH,
-                   color: color, intensity: 1.1 * min(intensity, 1.5) * draw)
-            x += starW + gap
-        }
-        if isAdmin {
-            Icon.shield.draw(into: &g, at: markY + cameraRight * (x + shieldW / 2) + cameraUp * (starH * 0.4), size: shieldW / 2,
-                             right: cameraRight, up: cameraUp, color: theme.accent, intensity: 1.4 * min(intensity, 1.5) * draw)
-        }
-        guard person.isContact else { return }
+        // Under the name, centred, in their colour: one mark, an admin's shield or else a contact's
+        // star; then your petname, if you gave them one.
+        guard let icon = Icon.mark(admin: admins.contains(fp), contact: person.isContact) else { return }
+        icon.draw(into: &g, at: position - cameraUp * (size + 0.7), size: 0.12, right: cameraRight, up: cameraUp,
+                  color: color, intensity: 1.3 * min(intensity, 1.5) * draw)
         if let pet = person.petname {
             let petLabel = SafeText.clean(pet)
             let pw = FrameGeometry.textWidth(petLabel, atlas: atlas, height: 0.24)

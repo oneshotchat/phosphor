@@ -22,6 +22,8 @@ struct RoomInfo: Equatable {
         var lastSpoke: String? = nil
         /// A server admin, by fingerprint: gets a shield we draw.
         var isAdmin = false
+        /// Saved as a contact: gets a star we draw (unless they're an admin).
+        var isContact = false
     }
 
     var name: String
@@ -151,8 +153,14 @@ struct RoomInfo: Equatable {
             recent.append(Person(identity: m.author.identity, label: label(m.author.identity, m.author.name),
                                  isYou: m.author.identity == me, lastSpoke: lastSpoke[m.author.identity]))
         }
-        everyone = (present + absentRoles + recent).map { var p = $0; p.isAdmin = admins.contains(p.identity); return p }
-        operators = operators.map { var p = $0; p.isAdmin = admins.contains(p.identity); return p }
+        func marked(_ p: Person) -> Person {
+            var p = p
+            p.isAdmin = admins.contains(p.identity)
+            p.isContact = ContactBook.shared.isContact(p.identity)
+            return p
+        }
+        everyone = (present + absentRoles + recent).map(marked)
+        operators = operators.map(marked)
         you = Person(identity: me, label: SafeText.clean(labels[me] ?? myName), isAdmin: admins.contains(me))
         youAre = switch state.role {
         case .operator: "operator"

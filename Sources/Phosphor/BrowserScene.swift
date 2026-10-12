@@ -18,7 +18,8 @@ struct BrowserScene {
         var origin: SIMD3<Float>
     }
 
-    func build(into g: inout FrameGeometry, rooms: [Placed], selected: String?, alpha: Float, theme: Theme) {
+    func build(into g: inout FrameGeometry, rooms: [Placed], selected: String?, alpha: Float, theme: Theme,
+               admins: Set<String> = []) {
         guard alpha > 0.01 else { return }
         let now = AppClock.now
         let r = Self.width / 2
@@ -48,15 +49,20 @@ struct BrowserScene {
                 let glyphColor = glyph.color(theme: theme)
                 glyph.draw(into: &g, at: left + SIMD3(0, y, 0), size: 0.4, color: glyphColor,
                            intensity: (isSelected ? 1.5 : 1) * alpha, width: 1.5, now: now)
-                // Stay within the room; a contact keeps their mark (and petname, if it fits).
+                // Stay within the room (a contact's petname only if it fits), then one mark we
+                // draw: an admin's shield, else a contact's star.
                 let label = SafeText.clean(labels[occupant.identity] ?? occupant.name)
                 var name = ContactBook.shared.display(occupant.identity, label: label, name: SafeText.clean(occupant.name))
-                if name.count > 18 {
-                    let base = label.count > 14 ? label.prefix(13) + "…" : label
-                    name = ContactBook.shared.isContact(occupant.identity) ? base + " ★" : base
-                }
-                g.text(name, atlas: atlas, origin: left + SIMD3(0.75, y - personSize * 0.35, 0), right: [1, 0, 0], up: [0, 1, 0],
+                if name.count > 16 { name = label.count > 14 ? label.prefix(13) + "…" : label }
+                let nameOrigin = left + SIMD3(0.75, y - personSize * 0.35, 0)
+                g.text(name, atlas: atlas, origin: nameOrigin, right: [1, 0, 0], up: [0, 1, 0],
                        height: personSize, color: glyphColor, intensity: (isSelected ? 1.3 : 0.85) * alpha)
+                if let icon = Icon.mark(admin: admins.contains(occupant.identity), contact: ContactBook.shared.isContact(occupant.identity)) {
+                    let at = nameOrigin.x + FrameGeometry.textWidth(name, atlas: atlas, height: personSize) + personSize * 0.6
+                    icon.draw(into: &g, at: SIMD3(at, nameOrigin.y + personSize * 0.36, nameOrigin.z), size: personSize * 0.38,
+                              right: [1, 0, 0], up: [0, 1, 0], color: glyphColor,
+                              intensity: (isSelected ? 1.3 : 0.9) * alpha)
+                }
             }
             if people > occupants.count {
                 g.text("+\(people - occupants.count) more", atlas: atlas,
