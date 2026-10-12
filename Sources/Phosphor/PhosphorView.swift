@@ -339,7 +339,7 @@ final class PhosphorView: MTKView, NSTextInputClient {
     // MARK: NSTextInputClient
 
     func insertText(_ string: Any, replacementRange: NSRange) {
-        if case .remove = controller?.contactPrompt { return }       // a yes/no question: ⏎ or esc
+        if controller?.contactPrompt?.isQuestion == true { return }     // a yes/no question: ⏎ or esc
         input.marked = ""
         input.insert((string as? NSAttributedString)?.string ?? string as? String ?? "")
         refreshCompletions()

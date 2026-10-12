@@ -394,6 +394,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             let active = room == controller.activeRoom
             let lineStart = geometry.lines.count, glyphStart = geometry.glyphs.count
             defer { sceneRanges[room] = (lineStart..<geometry.lines.count, glyphStart..<geometry.glyphs.count) }
+            scene.admins = controller.admins
             scene.build(into: &geometry, state: controller.state(room), theme: theme, me: controller.me, origin: controller.origin,
                         focus: active ? controller.focus : nil, eye: eye, cameraRight: cameraRight, cameraUp: cameraUp,
                         viewY: lookTarget.y, index: index,     // scrolling up lifts every room's sky

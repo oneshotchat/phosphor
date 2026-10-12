@@ -129,3 +129,20 @@ private func freshRoom(latestSeq: Int = 100) throws -> RoomState {
     #expect({ if case .pong = SocketFrame.decode(Data(#"{"type":"pong"}"#.utf8)) { true } else { false } }())
     #expect({ if case .unknown = SocketFrame.decode(Data("not json".utf8)) { true } else { false } }())
 }
+
+@Test func aTombstoneReplacesTheMessageAndNothingBringsItBack() throws {
+    var state = try freshRoom()
+    #expect(state.apply(try event(101, "message.created", #"{"message":\#(messageJSON(id: 101, text: "oops my password"))}"#)))
+    let tomb = #"{"id":101,"room":"\#(roomID)","author":{"identity":"\#(sam)","name":"sam"},"client":null,"text":"","mentions":[],"nonce":null,"signature":null,"version":1,"created_at":"2026-10-03T04:05:06.789Z","edited_at":null,"reactions":[],"expires_at":null,"deleted":{"at":"2026-10-03T05:00:00.000Z","by":"\#(sam)","as":"author","reason":null}}"#
+    #expect(state.apply(try event(102, "message.deleted", #"{"message":\#(tomb)}"#)))
+    #expect(state.messages[101]?.isDeleted == true)
+    #expect(state.messages[101]?.text == "")
+    // A replayed or late edit with a higher version, or an old history page, can't undo it.
+    #expect(state.apply(try event(103, "message.edited", #"{"message":\#(messageJSON(id: 101, text: "back again", version: 2))}"#)))
+    state.load([try decode(Message.self, messageJSON(id: 101, text: "oops my password"))])
+    #expect(state.messages[101]?.isDeleted == true)
+    #expect(state.messages[101]?.text == "")
+    // Nor does a reaction land on it.
+    #expect(state.apply(try event(104, "reaction.added", #"{"message_id":101,"reaction":"🔥","identity":"\#(ada)"}"#)))
+    #expect(state.messages[101]?.reactions?.isEmpty ?? true)
+}

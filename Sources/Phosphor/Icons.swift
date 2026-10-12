@@ -10,6 +10,7 @@ enum Icon {
     case hourglass, infinity         // kept for a while, kept forever
     case person, crown               // people here, operators
     case pen, penCrossed             // signing, not signing
+    case shield                      // a server admin (drawn by us: a name can't imitate it)
 
     func draw(into g: inout FrameGeometry, at center: SIMD3<Float>, size: Float, right: SIMD3<Float>, up: SIMD3<Float>,
               color: SIMD3<Float>, intensity: Float) {
@@ -67,6 +68,9 @@ enum Icon {
             path(arc(0, -0.95, 0.8, 0.85, from: 0.15, to: .pi - 0.15))
         case .crown:
             path([(-0.9, -0.6), (0.9, -0.6), (0.95, 0.55), (0.45, 0.0), (0, 0.75), (-0.45, 0.0), (-0.95, 0.55)], closed: true)
+        case .shield:
+            path([(-0.75, 0.85), (0, 1.0), (0.75, 0.85), (0.75, 0.05), (0, -1.0), (-0.75, 0.05)], closed: true)
+            path([(0, 0.62), (0, -0.55)])
         case .pen, .penCrossed:
             path([(-0.75, -0.75), (-0.55, -0.15), (0.55, 0.95), (0.95, 0.55), (-0.15, -0.55)], closed: true)
             path([(-0.75, -0.75), (-0.35, -0.35)])

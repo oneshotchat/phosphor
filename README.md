@@ -37,6 +37,8 @@ To run Phosphor (or `osc`) as a different identity with its own separate setting
 
 Names aren't unique and a tripcode is easy to imitate, so to recognise someone over time, save them as a contact: pick them on a room's people wall (⌘I, then →, then ↑↓) and press Return to save them and give a petname, or type `/contact @who [petname]`. On the contacts wall (⌘K), Return renames whoever's picked and ⌘⌫ removes them; → flies to their own wall, listing every room they're in, where Return takes you there (joining a listed room). Contacts are kept by full fingerprint, on your Mac only, and show everywhere with a ★, plus your petname in brackets if it differs from their name: `neo (Jared) ★`. ⌘K shows them all, with the rooms they're in now (yours, and listed rooms) and when you last saw them.
 
+Server admins get a small shield beside their name and under their glyph. Phosphor decides who's an admin from the server's list of admin fingerprints, never from a name, and draws the shield itself, so nobody can fake it by putting a symbol in their name.
+
 Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed rooms are saved in your login keychain, so those rooms rejoin after a restart.
 
 ## Keys
@@ -50,6 +52,7 @@ Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed 
 | ⌘← / ⌘→, ⌘1–⌘9 | Switch rooms |
 | ⌘I | Room info, and beside it the room's people (←→); also `/room` |
 | ⌘K | Contacts |
+| ⌘⌫ | Delete the selected message (asks first) |
 | ⌘W | Leave room |
 | ⌘G | Ring or row layout |
 | ⌘R | Reading mode: face the selected message (scroll to read down a long one) |
@@ -67,7 +70,7 @@ Scroll up and down to fly along the wall, sideways to orbit, and with ⌥ (or a 
 Type `/` to see the commands, each with what it does; Tab takes the highlighted one, and once a command is typed its usage stays above the input. **⌘/** (or `/help`) raises help out of the floor as a row of walls between you and the room, one each for chat, rooms, operators and keys, and flies you to it: ←→ flies along the row, and `/help chat`, `rooms`, `mod` or `keys` goes straight to one. With Reduce Motion on, it's a flat panel instead. Operator commands are only suggested in rooms where you're an operator. The main ones:
 
 - `/join room [key or invite code]`, `/leave`, `/nick name`
-- `/edit [id] text`, `/react [id] 👍`, `/unreact`
+- `/edit [id] text`, `/react [id] 👍`, `/unreact`, `/delete [id] [reason]` (your messages, or anyone's as an operator; a deleted message shows who removed it)
 - `/sign text` or `/unsigned text` to override the signing setting for one message
 - Operators: `/topic`, `/room` (visibility, access, speaking mode, retention), `/invite`, `/op`, `/deop`, `/voice`, `/devoice`, `/mute`, `/unmute`, `/ban`, `/unban`, `/allow`, `/kick`
 

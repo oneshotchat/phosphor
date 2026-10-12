@@ -323,10 +323,18 @@ struct RoomInfoScene {
         // Someone who isn't here: a dark glyph, standing still, and a dimmer name.
         glyph.draw(into: &g, at: base + SIMD3(x + size * 0.45, y - sunk + size * 0.35, 0), size: size * 0.45,
                    color: color, intensity: (dark ? 0.16 : 1.2) * fade, width: 1.3, now: dark ? 0 : now)
-        let label = cut(person.label, size, maxWidth)
+        // A server admin's shield goes right after the name, drawn by us (room for it is
+        // taken from the name, which is cut short first).
+        let shieldW = person.isAdmin ? size * 1.1 : 0
+        let label = cut(person.label, size, maxWidth - shieldW)
         g.text(label, atlas: atlas, origin: base + SIMD3(x + size * 1.2, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0],
                height: size, color: dark && !bright ? simd_mix(color, theme.primary, SIMD3(repeating: 0.6)) : color,
                intensity: (bright ? 1.6 : dark ? 0.4 : 1.1) * fade)
+        if person.isAdmin {
+            let at = x + size * 1.2 + FrameGeometry.textWidth(label, atlas: atlas, height: size) + size * 0.6
+            Icon.shield.draw(into: &g, at: base + SIMD3(at, y - sunk + size * 0.38, 0), size: size * 0.42, right: [1, 0, 0],
+                             up: [0, 1, 0], color: theme.accent, intensity: (dark ? 0.7 : 1.4) * fade)
+        }
     }
 }
 
@@ -407,7 +415,7 @@ extension RoomInfoScene {
             let facts = [seen, status].compactMap { $0 }.joined(separator: " · ")
             let factsSize = fitted(facts, size * 0.8, right - whereX)
             let factsWidth = width(facts, factsSize)
-            drawPerson(RoomInfo.Person(identity: row.identity, label: row.label), &g, base: base, x: left, y: detailsY, size: size,
+            drawPerson(RoomInfo.Person(identity: row.identity, label: row.label, isAdmin: row.isAdmin), &g, base: base, x: left, y: detailsY, size: size,
                        sunk: sunk, now: now, theme: theme, fade: visible(detailsY), maxWidth: right - factsWidth - nameX - size,
                        bright: true, dark: row.whereNow.isEmpty)
             text(facts, right - factsWidth, detailsY, factsSize, theme.accent, 0.9)
@@ -449,7 +457,7 @@ extension RoomInfoScene {
             let isSelected = row.identity == selected
             let away = row.whereNow.isEmpty
             if isSelected { text("▸", left - size * 0.9, y, size, theme.accent, 1.5) }
-            drawPerson(RoomInfo.Person(identity: row.identity, label: row.label), &g, base: base, x: left, y: y, size: size,
+            drawPerson(RoomInfo.Person(identity: row.identity, label: row.label, isAdmin: row.isAdmin), &g, base: base, x: left, y: y, size: size,
                        sunk: sunk, now: now, theme: theme, fade: visible(y), maxWidth: whereX - nameX - size * 0.6,
                        bright: isSelected, dark: away)
             let detail = isSelected ? theme.accent : theme.primary
@@ -497,7 +505,7 @@ extension RoomInfoScene {
         // Who: their glyph and name, then the facts, then the whole fingerprint.
         var y = h - pad - size * 1.5
         let big = size * 1.5
-        drawPerson(RoomInfo.Person(identity: card.row.identity, label: card.row.label), &g, base: base, x: left, y: y, size: big,
+        drawPerson(RoomInfo.Person(identity: card.row.identity, label: card.row.label, isAdmin: card.row.isAdmin), &g, base: base, x: left, y: y, size: big,
                    sunk: sunk, now: now, theme: theme, fade: visible(y), maxWidth: right - left - big * 1.3, bright: true,
                    dark: card.row.whereNow.isEmpty)
         y -= lineH * 1.05

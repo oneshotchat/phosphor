@@ -161,6 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // Your message, not just the newest (the demo may have said something since).
                         controller.focus = controller.state?.orderedMessages.last { $0.author.identity == controller.me }?.id
                         if env["PHOSPHOR_READ_SENT"] != nil { renderer?.readingMode = true }       // …and read it (⌘R)
+                        if env["PHOSPHOR_DELETE_SENT"] != nil {                                     // …or delete it (⌘⌫, ⏎)
+                            controller.askDelete(env["PHOSPHOR_DELETE_SENT"] ?? "")
+                            if env["PHOSPHOR_DELETE_CONFIRM"] != nil { view.devPressReturn() }
+                        }
                     }
                 }
             }
@@ -200,6 +204,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func removeContact(_ sender: Any?) {
         (window.contentView as? PhosphorView)?.clearInput()
         controller.askRemove()
+    }
+    /// ⌘⌫: on the contacts wall, remove the picked contact; otherwise delete the selected
+    /// message. Either way the input line asks first.
+    @objc func deleteSelected(_ sender: Any?) {
+        if controller.showingContacts { return removeContact(sender) }
+        guard controller.focus != nil else { return controller.note(.info, "select a message (↑↓) to delete it, or /delete") }
+        (window.contentView as? PhosphorView)?.clearInput()
+        controller.askDelete("")
     }
     @objc func toggleRoomInfo(_ sender: Any?) {
         if !controller.showingRoomInfo, controller.state == nil { return controller.note(.error, "not in a room") }
@@ -265,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ])
         submenu("Edit", [item("Copy Fingerprint", #selector(copyFingerprint(_:)), "c", target: self),
                          item("Save as Contact", #selector(saveContact(_:)), "s", target: self),
-                         item("Remove Contact…", #selector(removeContact(_:)), String(UnicodeScalar(NSBackspaceCharacter)!), target: self),
+                         item("Delete…", #selector(deleteSelected(_:)), String(UnicodeScalar(NSBackspaceCharacter)!), target: self),
                          item("Paste", #selector(PhosphorView.paste(_:)), "v")])
         submenu("View", [
             item("Reading Mode", #selector(toggleReading(_:)), "r", target: self),

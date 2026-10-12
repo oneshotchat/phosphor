@@ -53,10 +53,12 @@ public struct RoomState: Sendable {
         }
 
         switch event.payload {
-        case .messageCreated(let m), .messageEdited(let m):
+        case .messageCreated(let m), .messageEdited(let m), .messageDeleted(let m):
             upsert(m)
         case .reactionAdded(let r):
-            messages[r.messageId]?.applyReaction(r.reaction, by: r.identity, added: true)
+            if messages[r.messageId]?.isDeleted != true {                          // a tombstone has none
+                messages[r.messageId]?.applyReaction(r.reaction, by: r.identity, added: true)
+            }
         case .reactionRemoved(let r):
             messages[r.messageId]?.applyReaction(r.reaction, by: r.identity, added: false)
         case .memberJoined(let j):
@@ -102,7 +104,12 @@ public struct RoomState: Sendable {
     private var floorSeq: Int = 0
 
     private mutating func upsert(_ message: Message) {
-        if let existing = messages[message.id], existing.version > message.version { return }
+        if let existing = messages[message.id] {
+            // A tombstone always wins, and nothing brings a deleted message back (a late
+            // or replayed created/edited event, or an older history page).
+            if existing.isDeleted { return }
+            if !message.isDeleted, existing.version > message.version { return }
+        }
         messages[message.id] = message
     }
 }

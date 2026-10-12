@@ -20,6 +20,8 @@ struct RoomInfo: Equatable {
         var isYou = false
         /// When they last spoke in the loaded history ("2d ago"), or nil.
         var lastSpoke: String? = nil
+        /// A server admin, by fingerprint: gets a shield we draw.
+        var isAdmin = false
     }
 
     var name: String
@@ -46,7 +48,7 @@ struct RoomInfo: Equatable {
     /// itself doesn't name (role holders who aren't here).
     @MainActor
     init(state: RoomState, me: String, myName: String, signing: Bool, isOperator: Bool, roles: [RoleEntry]?,
-         identities: [String: IdentityInfo] = [:], now: Date = Date()) {
+         identities: [String: IdentityInfo] = [:], admins: Set<String> = [], now: Date = Date()) {
         let room = state.room
         name = "#" + SafeText.clean(room.name)
         roomID = room.id
@@ -149,8 +151,9 @@ struct RoomInfo: Equatable {
             recent.append(Person(identity: m.author.identity, label: label(m.author.identity, m.author.name),
                                  isYou: m.author.identity == me, lastSpoke: lastSpoke[m.author.identity]))
         }
-        everyone = present + absentRoles + recent
-        you = Person(identity: me, label: SafeText.clean(labels[me] ?? myName))
+        everyone = (present + absentRoles + recent).map { var p = $0; p.isAdmin = admins.contains(p.identity); return p }
+        operators = operators.map { var p = $0; p.isAdmin = admins.contains(p.identity); return p }
+        you = Person(identity: me, label: SafeText.clean(labels[me] ?? myName), isAdmin: admins.contains(me))
         youAre = switch state.role {
         case .operator: "operator"
         case .voice: "voiced"

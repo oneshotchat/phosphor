@@ -118,6 +118,14 @@ public final class ChatSession {
         return edited
     }
 
+    /// Deletes a message and applies its tombstone straight away (the event follows).
+    @discardableResult
+    public func delete(_ message: Message, reason: String? = nil) async throws -> Message {
+        let tombstone = try await client.delete(room: message.room, message: message.id, reason: reason)
+        rooms[message.room]?.load([tombstone])
+        return tombstone
+    }
+
     public func react(_ reaction: String, to message: Message) async throws {
         try await client.react(room: message.room, message: message.id, reaction: reaction)
     }

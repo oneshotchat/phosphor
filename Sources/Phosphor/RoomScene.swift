@@ -31,6 +31,10 @@ final class RoomScene {
         var s: Float?
     }
 
+    /// Server admins by fingerprint, set each frame: they get a shield we draw, beside
+    /// their name and under their glyph, which no name can imitate.
+    var admins: Set<String> = []
+
     private struct PanelVisual {
         var arrivedAt: Float = -100
         var glitchAt: Float = -100
@@ -42,6 +46,7 @@ final class RoomScene {
         var version = -1
         var columns = 0
         var contacts = -1
+        var deleted = false
         var lines: [String] = []
         /// Verifying Ed25519 every frame for every message adds up; once per version is enough.
         var signature: (version: Int, status: Message.SignatureStatus)?
@@ -179,6 +184,11 @@ final class RoomScene {
             messageArrived(m)
         case .messageEdited(let m):
             messageEdited(m)
+        case .messageDeleted(let m):
+            // Scramble it out, then the tombstone line writes itself in its place.
+            panels[m.id, default: PanelVisual()].glitchAt = now
+            panels[m.id]?.arrivedAt = now - beamTime + 0.35
+            panels[m.id]?.lines = []
         case .reactionAdded(let r):
             panels[r.messageId]?.sparkAt = now
         case .memberJoined(let j):
@@ -372,8 +382,10 @@ final class RoomScene {
                 continue
             }
             let label = labelLine(message, labels: labels, origin: origin)
+            let labelWidth = textWidth(label.name + label.rest, height: labelHeight)
+                + (admins.contains(message.author.identity) ? labelHeight * 1.4 : 0)
             let width = min(maxWidth, max(textLines.map { textWidth($0, height: textHeight) }.max() ?? 0,
-                                          textWidth(label, height: labelHeight),
+                                          labelWidth,
                                           hidden > 0 ? textWidth(Self.moreHint(hidden), height: labelHeight) : 0) + pad * 2)
 
             // Theirs on the left, yours on the right.
@@ -404,7 +416,8 @@ final class RoomScene {
         referenceMessage = nearest?.id
     }
 
-    private func buildPanel(into g: inout FrameGeometry, message: Message, lines textLines: [String], hidden: Int, label: String,
+    private func buildPanel(into g: inout FrameGeometry, message: Message, lines textLines: [String], hidden: Int,
+                            label: (name: String, rest: String),
                             s0: Float, s1: Float, y0: Float, y1: Float, surface: Surface, sky: Float,
                             author: SIMD3<Float>?, theme: Theme, me: String, origin: String, focused: Bool,
                             eye: SIMD3<Float>, now: Float, retention: Int?) {
@@ -452,9 +465,19 @@ final class RoomScene {
         let authorColor = (people[message.author.identity]?.glyph ?? IdentityGlyph(fingerprint: message.author.identity)).color(theme: theme)
         let textS = s0 + pad
         var baseline = y1 - pad - labelHeight * 0.8
-        g.surfaceText(label, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: labelHeight,
-                      color: signatureStatus(message, origin: origin) == .invalid ? theme.accent : authorColor,
-                      intensity: 0.9 * bright, eye: eye)
+        let labelColor = signatureStatus(message, origin: origin) == .invalid ? theme.accent : authorColor
+        g.surfaceText(label.name, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: labelHeight,
+                      color: labelColor, intensity: 0.9 * bright, eye: eye)
+        var restS = textS + textWidth(label.name, height: labelHeight)
+        if admins.contains(message.author.identity) {
+            // A server admin's shield, drawn by us right after the name.
+            let at = restS + labelHeight * 0.7
+            Icon.shield.draw(into: &g, at: surface.point(at, baseline + labelHeight * 0.38), size: labelHeight * 0.5,
+                             right: surface.tangent(at: at), up: [0, 1, 0], color: theme.accent, intensity: 1.4 * bright)
+            restS += labelHeight * 1.4
+        }
+        g.surfaceText(label.rest, atlas: atlas, surface: surface, s: restS, baseline: baseline, height: labelHeight,
+                      color: labelColor, intensity: 0.9 * bright, eye: eye)
         baseline -= labelHeight * 0.4 + textHeight * 1.05
 
         let glitching = now - visual.glitchAt < 0.35
@@ -462,7 +485,8 @@ final class RoomScene {
         for line in textLines {
             let shown = glitching ? scrambled(line, seed: Int(now * 30)) : line
             g.surfaceText(shown, atlas: atlas, surface: surface, s: textS, baseline: baseline, height: textHeight,
-                          color: theme.primary, intensity: bright, reveal: glitching ? .infinity : reveal, eye: eye)
+                          color: theme.primary, intensity: bright * (message.isDeleted ? 0.5 : 1),   // a tombstone, dimmer
+                          reveal: glitching ? .infinity : reveal, eye: eye)
             reveal -= Float(line.count)
             baseline -= textHeight * 1.25
         }
@@ -530,11 +554,25 @@ final class RoomScene {
         let w = FrameGeometry.textWidth(label, atlas: atlas, height: 0.28)
         g.text(label, atlas: atlas, origin: position - cameraRight * (w / 2) - cameraUp * (size + 0.45),
                right: cameraRight, up: cameraUp, height: 0.28, color: color, intensity: 0.9 * min(intensity, 1.5) * draw)
-        // A contact: a small ★ centred under the name, then your petname, in their colour.
+        // Under the name, centred: a contact's ★ (in their colour) and a server admin's
+        // shield (drawn, in the accent colour), side by side if both; then your petname.
+        let isAdmin = admins.contains(fp)
+        guard person.isContact || isAdmin else { return }
+        let starH: Float = 0.32, shieldW: Float = 0.34, gap: Float = 0.12
+        let starW = person.isContact ? FrameGeometry.textWidth("★", atlas: atlas, height: starH) : 0
+        let total = starW + (isAdmin ? shieldW : 0) + (person.isContact && isAdmin ? gap : 0)
+        let markY = position - cameraUp * (size + 0.82)
+        var x = -total / 2
+        if person.isContact {
+            g.text("★", atlas: atlas, origin: markY + cameraRight * x, right: cameraRight, up: cameraUp, height: starH,
+                   color: color, intensity: 1.1 * min(intensity, 1.5) * draw)
+            x += starW + gap
+        }
+        if isAdmin {
+            Icon.shield.draw(into: &g, at: markY + cameraRight * (x + shieldW / 2) + cameraUp * (starH * 0.4), size: shieldW / 2,
+                             right: cameraRight, up: cameraUp, color: theme.accent, intensity: 1.4 * min(intensity, 1.5) * draw)
+        }
         guard person.isContact else { return }
-        let star = "★", sw = FrameGeometry.textWidth(star, atlas: atlas, height: 0.32)
-        g.text(star, atlas: atlas, origin: position - cameraRight * (sw / 2) - cameraUp * (size + 0.82),
-               right: cameraRight, up: cameraUp, height: 0.32, color: color, intensity: 1.1 * min(intensity, 1.5) * draw)
         if let pet = person.petname {
             let petLabel = SafeText.clean(pet)
             let pw = FrameGeometry.textWidth(petLabel, atlas: atlas, height: 0.24)
@@ -566,21 +604,24 @@ final class RoomScene {
     }
 
     private func signatureStatus(_ m: Message, origin: String) -> Message.SignatureStatus {
+        if m.isDeleted { return .unsigned }          // a tombstone keeps its version, not its signature
         if let cached = panels[m.id]?.signature, cached.version == m.version { return cached.status }
         let status = m.signatureStatus(server: origin)
         panels[m.id, default: PanelVisual()].signature = (m.version, status)
         return status
     }
 
-    private func labelLine(_ m: Message, labels: [String: String], origin: String) -> String {
-        var line = SafeText.clean(labels[m.author.identity] ?? m.author.name)
+    /// A message's header: the author's name, then (after any admin shield) its marks and id.
+    private func labelLine(_ m: Message, labels: [String: String], origin: String) -> (name: String, rest: String) {
+        let name = SafeText.clean(labels[m.author.identity] ?? m.author.name)
+        var rest = ""
         switch signatureStatus(m, origin: origin) {
-        case .valid: line += " ✓signed"
-        case .invalid: line += " ✗ BAD SIGNATURE"
+        case .valid: rest += " ✓signed"
+        case .invalid: rest += " ✗ BAD SIGNATURE"
         case .unsigned: break
         }
-        if m.editedAt != nil { line += " (edited)" }
-        return line + "  [\(m.id)]"
+        if m.editedAt != nil { rest += " (edited)" }
+        return (name, rest + "  [\(m.id)]")
     }
 
     static func moreHint(_ hidden: Int) -> String { "… \(hidden) more line\(hidden == 1 ? "" : "s") · ↑↓ select it to read all" }
@@ -598,13 +639,16 @@ final class RoomScene {
     private func lines(for m: Message, labels: [String: String], maxWidth: Float) -> [String] {
         let columns = Int(maxWidth / max(textWidth("M", height: textHeight), 0.01))
         if let v = panels[m.id], v.version == m.version, v.columns == columns, v.contacts == ContactBook.shared.revision,
-           !v.lines.isEmpty { return v.lines }
-        let text = SafeText.clean(MentionText.display(m.text) { labels[$0] ?? String($0.prefix(8)) })
+           v.deleted == m.isDeleted, !v.lines.isEmpty { return v.lines }
+        // A deleted message shows who removed it, in place of its text (which is gone).
+        let text = m.deleted.map { $0.line { labels[$0] } }
+            ?? SafeText.clean(MentionText.display(m.text) { labels[$0] ?? String($0.prefix(8)) })
         let wrapped = wrap(text, columns: columns)
         panels[m.id, default: PanelVisual()].lines = wrapped
         panels[m.id]?.version = m.version
         panels[m.id]?.columns = columns
         panels[m.id]?.contacts = ContactBook.shared.revision        // mentions show contacts' petnames
+        panels[m.id]?.deleted = m.isDeleted
         return wrapped
     }
 

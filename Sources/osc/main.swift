@@ -39,7 +39,7 @@ func fail(_ message: String) -> Never {
 func makeClient() throws -> OSCClient {
     let (identity, file) = try IdentityFile.loadOrCreate(at: identityURL, name: nameOption)
     return OSCClient(baseURL: server, identity: identity, displayName: nameOption ?? file.name,
-                     client: ClientInfo(name: "phosphor-cli", version: version))
+                     client: ClientInfo(name: "phosphor-cli", version: version, url: "https://github.com/oneshotchat/phosphor"))
 }
 
 switch args.first {
@@ -125,6 +125,7 @@ final class Chat {
             switch event.payload {
             case .messageCreated(let m): print(render(m))
             case .messageEdited(let m): print("edited → " + render(m))
+            case .messageDeleted(let m): print("[\(m.id)] " + (m.deleted?.line(name: label) ?? "message deleted"))
             case .reactionAdded(let r): print("· \(safe(label(r.identity))) reacted \(safe(r.reaction)) to [\(r.messageId)]")
             case .reactionRemoved(let r): print("· \(safe(label(r.identity))) removed \(safe(r.reaction)) from [\(r.messageId)]")
             case .memberJoined(let j): print("· \(safe(label(j.identity))) joined")

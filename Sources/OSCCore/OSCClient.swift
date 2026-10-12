@@ -202,6 +202,13 @@ public actor OSCClient {
                               body: Body(text: text, version: version, signature: signature))
     }
 
+    /// Deletes a message (yours, or anyone's as an operator or admin) and returns its
+    /// tombstone. Deleting a deleted message just returns the tombstone again.
+    public func delete(room: String, message: Int, reason: String? = nil) async throws -> Message {
+        struct Body: Encodable { var reason: String? }
+        return try await call("DELETE", "/v1/rooms/\(segment(room))/messages/\(message)", body: Body(reason: reason))
+    }
+
     public func react(room: String, message: Int, reaction: String) async throws {
         let _: Empty = try await call("PUT", "/v1/rooms/\(segment(room))/messages/\(message)/reactions/\(segment(reaction))")
     }

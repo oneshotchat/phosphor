@@ -152,6 +152,9 @@ final class DemoFeed {
 
     private var regulars: Set<String> = []
 
+    /// Someone here to play a server admin in the demo (one who speaks, so their shield shows).
+    var adminSeed: String? { speakerPool.last { !regulars.contains($0.fp) }?.fp }
+
     /// People to start the demo's contacts with: someone here, and someone who's left.
     func contactSeeds() -> [(fp: String, name: String)] {
         let here = people.prefix(present.count).dropFirst().first { $0.name != "sam" && !regulars.contains($0.fp) }
@@ -229,6 +232,20 @@ final class DemoFeed {
         dict["edited_at"] = Self.timestamp(Date())
         messages[id] = dict
         emit("message.edited", ["message": dict])
+    }
+
+    /// Deletes a message as the server would: a tombstone in its place, and the event.
+    func delete(_ id: Int, by fp: String, reason: String?) {
+        guard var dict = messages[id], dict["deleted"] == nil || dict["deleted"] is NSNull else { return }
+        let author = (dict["author"] as? [String: Any])?["identity"] as? String
+        dict["text"] = ""
+        for key in ["client", "nonce", "signature", "edited_at"] { dict[key] = NSNull() }
+        dict["mentions"] = [] as [Any]
+        dict["reactions"] = [] as [Any]
+        dict["deleted"] = ["at": Self.timestamp(Date()), "by": fp, "as": author == fp ? "author" : "operator",
+                           "reason": reason as Any? ?? NSNull()] as [String: Any]
+        messages[id] = dict
+        emit("message.deleted", ["message": dict])
     }
 
     private func emit(_ type: String, _ data: [String: Any], seq explicit: Int? = nil) {

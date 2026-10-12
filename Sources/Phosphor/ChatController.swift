@@ -25,7 +25,9 @@ final class ChatController {
         var mentioned = false
     }
 
-    static let clientInfo = ClientInfo(name: "phosphor", version: "0.1.0")
+    /// Sent with every message: the same for every user (the protocol asks that nothing
+    /// user-specific goes in it); the URL is the public repo.
+    static let clientInfo = ClientInfo(name: "phosphor", version: "0.1.0", url: "https://github.com/oneshotchat/phosphor")
 
     private(set) var session: ChatSession?
     /// Joined rooms in order; ⌘1 is the first.
@@ -56,6 +58,17 @@ final class ChatController {
 
     /// Every listed room from the public room browser, busiest first.
     private(set) var listed: [Room] = []
+
+    /// Server admins, by fingerprint: from the server's discovery list (refreshed now and
+    /// then) plus anyone marked admin in a room. Never from a name: anyone can take one.
+    private var discoveredAdmins: Set<String> = []
+    private var demoAdmins: Set<String> = []
+    var admins: Set<String> {
+        var all = discoveredAdmins.union(demoAdmins)
+        for room in rooms { for o in state(room)?.occupants.values ?? [:].values where o.admin == true { all.insert(o.identity) } }
+        return all
+    }
+    func isAdmin(_ fingerprint: String) -> Bool { admins.contains(fingerprint) }
     private var listedAt: Date?
     /// Listed rooms you haven't joined.
     var unjoinedListed: [Room] { listed.filter { !rooms.contains($0.id) } }
@@ -124,6 +137,7 @@ final class ChatController {
         var whereNow: [String]
         var lastSeen: String?
         var lastSeenRoom: String?
+        var isAdmin = false
     }
 
     /// Everyone saved, alphabetically by what you call them (petname, else name): a
@@ -136,7 +150,7 @@ final class ChatController {
             return ContactRow(identity: c.fingerprint, label: book.display(c.fingerprint, label: SafeText.clean(name)),
                               petname: c.petname, whereNow: whereNow,
                               lastSeen: whereNow.isEmpty ? c.lastSeen.map { RoomInfo.ago(-$0.timeIntervalSinceNow) } : "now",
-                              lastSeenRoom: c.lastSeenRoom)
+                              lastSeenRoom: c.lastSeenRoom, isAdmin: isAdmin(c.fingerprint))
         }
         .sorted { a, b in
             let x = (a.petname ?? book.contact(a.identity)?.name ?? a.label).lowercased()
@@ -250,11 +264,23 @@ final class ChatController {
     enum ContactPrompt: Equatable {
         case rename(String, label: String)
         case remove(String, label: String)
+        /// Deleting a message: yours, or (as an operator or admin) someone else's.
+        case deleteMessage(Message, reason: String?, whose: String)
 
         var prompt: String {
             switch self {
             case .rename(_, let label): "petname for \(label) › "
             case .remove(_, let label): "remove \(label) from contacts?  ⏎ yes · esc no "
+            case .deleteMessage(let m, _, let whose):
+                "delete \(whose) message [\(m.id)]? it can't be undone, and people may have seen it  ⏎ yes · esc no "
+            }
+        }
+
+        /// A yes/no question: typing is ignored, only ⏎ or esc answer it.
+        var isQuestion: Bool {
+            switch self {
+            case .rename: false
+            case .remove, .deleteMessage: true
             }
         }
     }
@@ -305,7 +331,40 @@ final class ChatController {
             ContactBook.shared.remove(fp)
             if selectedContact == fp { selectedContact = nil }
             note(.info, "\(plainName(fp)) removed from contacts")
+        case .deleteMessage(let m, let reason, _):
+            contactPrompt = nil
+            if focus == m.id { focus = nil }
+            if let feed = demos[m.room] { return feed.delete(m.id, by: me, reason: reason) }
+            Task {
+                do {
+                    try await session?.delete(m, reason: reason)
+                    note(.info, "message [\(m.id)] deleted")
+                } catch let error as OSCError {
+                    note(.error, "couldn't delete [\(m.id)]: \(error.message)")
+                } catch {
+                    note(.error, "couldn't delete [\(m.id)]: \(error)")
+                }
+            }
         }
+    }
+
+    /// `/delete [id] [reason]` or ⌘⌫: the given message, else the selected one, else your
+    /// latest. Asks before deleting. Yours always; anyone's as an operator or admin.
+    func askDelete(_ args: String) {
+        guard let state else { return note(.error, "not in a room") }
+        let (first, more) = split(args.trimmingCharacters(in: .whitespaces))
+        let byID = Int(first).flatMap { state.messages[$0] }
+        if Int(first) != nil, byID == nil { return note(.error, "no message [\(first)] here (it may have expired)") }
+        let target = byID ?? focus.flatMap { state.messages[$0] }
+            ?? state.orderedMessages.last { $0.author.identity == me && !$0.isDeleted }
+        guard let target else { return note(.error, "no message to delete: select one (↑↓) or give its number") }
+        guard !target.isDeleted else { return note(.info, "[\(target.id)] is already deleted") }
+        let mine = target.author.identity == me
+        guard mine || isOperator else { return note(.error, "only its author, an operator or a server admin can delete it") }
+        let reason = (byID != nil ? more : args).trimmingCharacters(in: .whitespaces)
+        if reason.utf8.count > 200 { return note(.error, "a reason can be 200 bytes at most") }
+        let whose = mine ? "your" : SafeText.clean(state.labels[target.author.identity] ?? target.author.name) + "'s"
+        contactPrompt = .deleteMessage(target, reason: reason.isEmpty ? nil : reason, whose: whose)
     }
 
     /// ⌘S on the people wall: save the selected person (no petname yet).
@@ -424,7 +483,7 @@ final class ChatController {
     var roomInfo: RoomInfo? {
         guard let state, let activeRoom else { return nil }
         return RoomInfo(state: state, me: me, myName: displayName, signing: signByDefault, isOperator: isOperator,
-                        roles: roomRoles[activeRoom] ?? demos[activeRoom]?.roles, identities: identities)
+                        roles: roomRoles[activeRoom] ?? demos[activeRoom]?.roles, identities: identities, admins: admins)
     }
 
     /// ←→ in help: the next or previous topic, stopping at the ends.
@@ -528,8 +587,15 @@ final class ChatController {
 
                 // Keep the room listing fresh. It's public and cacheable for 10 s; once a
                 // minute is plenty outside the browser.
+                discoveredAdmins = Set(session.discovery?.admins ?? [])
+                var minutes = 0
                 while !Task.isCancelled {
                     await refreshListing()
+                    // The admin list changes rarely: re-read it every 10 minutes.
+                    if minutes > 0, minutes % 10 == 0, let d = try? await session.client.discover() {
+                        discoveredAdmins = Set(d.admins ?? [])
+                    }
+                    minutes += 1
                     try? await Task.sleep(for: .seconds(60))
                 }
             } catch is CancellationError {
@@ -709,6 +775,7 @@ final class ChatController {
                                lastSeen: Date(), lastSeenRoom: "#" + elsewhere.name))
         }
         ContactBook.shared.useInMemory(seed: seeds)
+        demoAdmins = Set([demos[rooms[0]]?.adminSeed].compactMap { $0 })
         note(.info, "demo mode · offline")
     }
 
@@ -848,6 +915,7 @@ final class ChatController {
         }
         // Contacts are local: they work the same live or in the demo.
         if head == "/contacts" { return showingContacts = true }
+        if head == "/delete" { return askDelete(rest) }
         if head == "/contact" || head == "/uncontact" { return contactCommand(head, rest, labels: labels) }
         if head == "/room", rest.trimmingCharacters(in: .whitespaces).isEmpty {
             guard state != nil else { return note(.error, "not in a room") }
@@ -889,12 +957,14 @@ final class ChatController {
                 case "/edit", "/sedit":
                     let (target, text) = targetMessage(rest, mine: true)
                     guard let target else { return note(.error, "no message of yours to edit") }
+                    guard !target.isDeleted else { return note(.error, "[\(target.id)] was deleted: it can't be edited") }
                     if let edited = try await session?.edit(target, to: MentionText.compose(text, labels: labels), sign: head == "/sedit" || signByDefault) {
                         onOwnMessage?(edited.room, edited, true)
                     }
                 case "/react", "/unreact":
                     let (target, reaction) = targetMessage(rest, mine: false)
                     guard let target, !reaction.isEmpty else { return note(.error, "usage: /react [id] 👍") }
+                    guard !target.isDeleted else { return note(.error, "[\(target.id)] was deleted: it can't be reacted to") }
                     if head == "/react" { try await session?.react(reaction, to: target) } else { try await session?.unreact(reaction, from: target) }
                 case "/join":
                     // /join room [key]  or  /join room invite <code>
@@ -1088,7 +1158,7 @@ final class ChatController {
         let (first, rest) = split(args)
         if let id = Int(first), let m = state?.messages[id] { return (m, rest) }
         if let focus, let m = state?.messages[focus], !mine || m.author.identity == me { return (m, args) }
-        let candidates = state?.orderedMessages.filter { !mine || $0.author.identity == me } ?? []
+        let candidates = state?.orderedMessages.filter { (!mine || $0.author.identity == me) && !$0.isDeleted } ?? []
         return (candidates.last, args)
     }
 

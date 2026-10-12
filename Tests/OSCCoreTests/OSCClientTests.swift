@@ -243,6 +243,21 @@ private func makeClient() throws -> OSCClient {
         #expect(info == IdentityInfo(id: "wu4yxnhl", name: "angus", status: "active"))
     }
 
+    @Test func deletingSendsTheReasonAndReturnsTheTombstone() async throws {
+        let tomb = #"{"id":7,"room":"r1","author":{"identity":"abc","name":"sam"},"client":null,"text":"","mentions":[],"nonce":null,"signature":null,"version":2,"created_at":"2026-10-03T04:05:06.789Z","edited_at":null,"reactions":[],"expires_at":null,"deleted":{"at":"2026-10-03T05:00:00.000Z","by":"def","as":"operator","reason":"spam"}}"#
+        StubServer.reset(loginReplies + [.init(json: tomb)])
+        let client = try makeClient()
+        let m = try await client.delete(room: "r1", message: 7, reason: "spam")
+        #expect(StubServer.seen.last!.method == "DELETE")
+        #expect(StubServer.seen.last!.path == "/v1/rooms/r1/messages/7")
+        #expect(StubServer.seen.last!.body["reason"] as? String == "spam")
+        #expect(m.isDeleted && m.text.isEmpty && m.client == nil)
+        #expect(m.deleted == Deletion(at: m.deleted?.at, by: "def", role: "operator", reason: "spam"))
+        #expect(m.deleted?.line(name: { $0 == "def" ? "theo" : nil }) == "message removed by an operator (theo): spam")
+        #expect(Deletion(role: "author").line() == "message deleted by its author")
+        #expect(Deletion(role: "admin").line() == "message removed by a server admin")
+    }
+
     @MainActor @Test func leavingReportsTheRoomName() async throws {
         let room = #"{"room":{"id":"r1","name":"secret","latest_seq":5},"role":null,"created":false}"#
         StubServer.reset(loginReplies + [

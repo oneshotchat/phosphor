@@ -173,6 +173,39 @@ public struct Invite: Decodable, Sendable {
     public var expiresAt: Date?
 }
 
+/// Who deleted a message, when, in what capacity, and why.
+public struct Deletion: Codable, Sendable, Equatable {
+    public var at: Date?
+    public var by: String?
+    /// `author`, `operator` or `admin` (anything else: treat as an operator's).
+    public var role: String?
+    public var reason: String?
+
+    enum CodingKeys: String, CodingKey { case at, by, role = "as", reason }
+
+    /// The line shown in place of a deleted message, as the protocol asks: who removed
+    /// it, optionally their name, and the reason. `name` looks up a display label for
+    /// a fingerprint (nil for none). The reason is untrusted text: cleaned here.
+    public func line(name: (String) -> String? = { _ in nil }) -> String {
+        var line: String
+        switch role {
+        case "author": line = "message deleted by its author"
+        case "admin": line = "message removed by a server admin"
+        default: line = "message removed by an operator"
+        }
+        if role != "author", let by, let who = name(by) { line += " (\(SafeText.clean(who)))" }
+        if let reason, !reason.isEmpty { line += ": " + SafeText.clean(reason).replacingOccurrences(of: "\n", with: " ") }
+        return line
+    }
+
+    public init(at: Date? = nil, by: String? = nil, role: String? = nil, reason: String? = nil) {
+        self.at = at
+        self.by = by
+        self.role = role
+        self.reason = reason
+    }
+}
+
 public struct Author: Codable, Sendable, Equatable {
     public var identity: String
     /// A snapshot of the name at send time.
@@ -200,6 +233,11 @@ public struct Message: Codable, Sendable, Equatable, Identifiable {
     public var editedAt: Date?
     public var reactions: [ReactionSummary]?
     public var expiresAt: Date?
+    /// Set once the message is deleted: it's then a tombstone, with empty text and no
+    /// signature, client, nonce, mentions or reactions (protocol §7, "Deleting").
+    public var deleted: Deletion?
+
+    public var isDeleted: Bool { deleted != nil }
 
     public enum SignatureStatus: Sendable, Equatable {
         case unsigned, valid, invalid
@@ -256,6 +294,8 @@ public struct Event: Decodable, Sendable {
     public enum Payload: Sendable {
         case messageCreated(Message)
         case messageEdited(Message)
+        /// The message's tombstone: replace it by id and forget its text.
+        case messageDeleted(Message)
         case reactionAdded(ReactionChange)
         case reactionRemoved(ReactionChange)
         case memberJoined(MemberJoined)
@@ -317,6 +357,7 @@ public struct Event: Decodable, Sendable {
         let parsed: Payload? = switch type {
         case "message.created": data(MessageData.self).map { .messageCreated($0.message) }
         case "message.edited": data(MessageData.self).map { .messageEdited($0.message) }
+        case "message.deleted": data(MessageData.self).map { .messageDeleted($0.message) }
         case "reaction.added": data(ReactionChange.self).map { .reactionAdded($0) }
         case "reaction.removed": data(ReactionChange.self).map { .reactionRemoved($0) }
         case "member.joined": data(MemberJoined.self).map { .memberJoined($0) }
