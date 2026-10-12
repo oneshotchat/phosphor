@@ -34,7 +34,14 @@ struct HUD {
         y -= 20 * scale
         let myLabel = state?.labels[controller.me] ?? controller.displayName
         if let topic = state?.room.topic, !topic.isEmpty {
-            text(SafeText.clean(topic).replacingOccurrences(of: "\n", with: " "), mx, y, 12, theme.primary, 0.75)
+            // One line, kept to the left of the screen; room info (⌘I) shows all of it.
+            var shown = SafeText.clean(topic).replacingOccurrences(of: "\n", with: " ")
+            let room = viewport.x * 0.4
+            if width(shown, 12) > room {
+                while !shown.isEmpty, width(shown + "… ⌘I", 12) > room { shown.removeLast() }
+                shown = shown.trimmingCharacters(in: .whitespaces) + "… ⌘I"
+            }
+            text(shown, mx, y, 12, theme.primary, 0.75)
             y -= 16 * scale
         }
         text("you: \(SafeText.clean(myLabel)) · \(controller.signByDefault ? "signing" : "unsigned")   type / for commands · ⌘/ help",

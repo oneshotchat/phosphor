@@ -69,7 +69,10 @@ struct RoomInfoScene {
 
         // Layout in "lines", scaled down to fit if an operator's extra lines need it.
         let showChange = info.isOperator
-        let lineCount = 4.0 + (info.topic == nil ? 0 : 1) + Float(info.settings.count) * (showChange ? 1.75 : 1.15) + 0.6 + 4 * 1.15
+        // The topic wraps (topics run to 200 bytes); measured at the largest size, which
+        // only over-counts if the wall then shrinks the text.
+        let topicLines = info.topic.map { wrapped($0, height: 0.38 * 0.8, width: w * 2 - 1.3) } ?? []
+        let lineCount = 4.0 + Float(topicLines.count) * 0.9 + Float(info.settings.count) * (showChange ? 1.75 : 1.15) + 0.6 + 4 * 1.15
         let pad: Float = 0.65
         let size = min(0.38, (h - pad * 2) / lineCount / 1.3)
         let lineH = size * 1.3
@@ -105,10 +108,11 @@ struct RoomInfoScene {
         text("fingerprint  " + info.roomID, left, y, size * 0.6, theme.primary, 0.45)
         y -= lineH
         if let topic = info.topic {
-            var shown = topic
-            while width(shown, size * 0.8) > w * 2 - pad * 2, !shown.isEmpty { shown.removeLast() }
-            text(shown == topic ? topic : shown.dropLast() + "…", left, y, size * 0.8, theme.primary, 0.75)
-            y -= lineH
+            for line in wrapped(topic, height: size * 0.8, width: w * 2 - pad * 2) {
+                text(line, left, y, size * 0.8, theme.primary, 0.75)
+                y -= lineH * 0.9
+            }
+            y -= lineH * 0.1
         }
         y -= lineH * 0.5
 
@@ -289,6 +293,28 @@ struct RoomInfoScene {
     private func fitted(_ s: String, _ height: Float, _ room: Float) -> Float {
         let w = FrameGeometry.textWidth(s, atlas: atlas, height: height)
         return w > room ? height * room / w : height
+    }
+
+    /// `s` broken into lines no wider than `width`, at word boundaries (a word too long
+    /// for a line is cut), at most `limit` lines with the last ending "…" if it runs over.
+    private func wrapped(_ s: String, height: Float, width: Float, limit: Int = 3) -> [String] {
+        func w(_ t: String) -> Float { FrameGeometry.textWidth(t, atlas: atlas, height: height) }
+        var lines: [String] = [], line = ""
+        for word in s.split(separator: " ") {
+            let candidate = line.isEmpty ? String(word) : line + " " + word
+            if w(candidate) <= width || line.isEmpty {
+                line = w(candidate) <= width ? candidate : cut(candidate, height, width)
+            } else {
+                lines.append(line)
+                line = w(String(word)) <= width ? String(word) : cut(String(word), height, width)
+            }
+        }
+        if !line.isEmpty { lines.append(line) }
+        if lines.count > limit {
+            lines = Array(lines.prefix(limit))
+            lines[limit - 1] = cut(lines[limit - 1] + " …", height, width)
+        }
+        return lines
     }
 
     /// `s`, cut short with "…" to fit in `room`.
