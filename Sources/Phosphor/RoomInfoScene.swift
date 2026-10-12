@@ -106,14 +106,14 @@ struct RoomInfoScene {
         // The room's fingerprint: its name can change hands, this can't.
         text("fingerprint  " + info.roomID, left, y, size * 0.6, theme.primary, 0.45)
         y -= lineH
-        if let topic = info.topic {
-            for line in wrapped(topic, height: size * 0.8, width: w * 2 - pad * 2) {
-                text(line, left, y, size * 0.8, theme.primary, 0.75)
-                y -= lineH * 0.9
-            }
-            y -= lineH * 0.1
+        // The topic always gets room for three lines, used or not, so the settings below
+        // start in the same place in every room.
+        let topicTop = y
+        for line in info.topic.map({ wrapped($0, height: size * 0.8, width: w * 2 - pad * 2) }) ?? [] {
+            text(line, left, y, size * 0.8, theme.primary, 0.75)
+            y -= lineH * 0.9
         }
-        y -= lineH * 0.5
+        y = topicTop - lineH * (3 * 0.9 + 0.1) - lineH * 0.5
 
         for row in info.settings {
             let lit = glow[row.label] ?? 0
@@ -122,10 +122,11 @@ struct RoomInfoScene {
             text(row.label, labelX, y + size * 0.08, size * 0.75, theme.primary, 0.55)
             text(row.value, valueX, y, size, lit > 0 ? theme.accent : theme.primary, 1.2 * pulse)
             y -= lineH * 1.15
+            // An operator sees how to change it; everyone else gets the same gap.
             if showChange, let change = row.change {
                 text(change, valueX, y + lineH * 0.45, size * 0.72, theme.primary, 0.5)
-                y -= lineH * 0.6
             }
+            y -= lineH * 0.6
         }
         y -= lineH * 0.6
 
