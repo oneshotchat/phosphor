@@ -5,7 +5,7 @@ import Security
 /// Stored by room fingerprint, not name: a different room that later takes the name never
 /// gets the key.
 enum RoomKeychain {
-    private static let service = "Phosphor room key"
+    private static var service: String { Profile.keychainService }
 
     private static func query(_ room: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

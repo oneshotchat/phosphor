@@ -51,11 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeFirstResponder(view)
             NSApp.activate(ignoringOtherApps: true)
             // Full screen by default; leaving it (⌃⌘F or the green button) is remembered.
-            let defaults = UserDefaults.standard
+            let defaults = Profile.defaults
             if defaults.object(forKey: "fullScreen") as? Bool ?? true { window.toggleFullScreen(nil) }
             for (name, value) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
                 NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { _ in
-                    UserDefaults.standard.set(value, forKey: "fullScreen")
+                    Profile.defaults.set(value, forKey: "fullScreen")
                 }
             }
         }

@@ -25,8 +25,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// 0…1: how far the world is dimmed behind the help panel or command list.
     private var helpFade: Float = 0
 
-    var crtEnabled = UserDefaults.standard.bool(forKey: "crtEnabled") {
-        didSet { if rememberSettings { UserDefaults.standard.set(crtEnabled, forKey: "crtEnabled") } }
+    var crtEnabled = Profile.defaults.bool(forKey: "crtEnabled") {
+        didSet { if rememberSettings { Profile.defaults.set(crtEnabled, forKey: "crtEnabled") } }
     }
     /// Off while a tour runs, so its changes don't stick to your next launch.
     var rememberSettings = true
@@ -71,9 +71,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var switchedFrom: String?
     /// How quickly rooms move in the row (exponential ease rate, per second).
     private let rowSpeed: Float = 5.5
-    var layout: RoomLayout = RoomLayout(rawValue: UserDefaults.standard.string(forKey: "roomLayout") ?? "") ?? .ring {
+    var layout: RoomLayout = RoomLayout(rawValue: Profile.defaults.string(forKey: "roomLayout") ?? "") ?? .ring {
         didSet {
-            if rememberSettings { UserDefaults.standard.set(layout.rawValue, forKey: "roomLayout") }
+            if rememberSettings { Profile.defaults.set(layout.rawValue, forKey: "roomLayout") }
             layoutChangedAt = AppClock.now
             roomsMovedAt = AppClock.now
         }
@@ -146,7 +146,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var lastCPU: Float = 0
     private static let logFPS = ProcessInfo.processInfo.environment["PHOSPHOR_FPS"] != nil
     /// Eases between full CRT (1) and clean (0); starts at the saved setting.
-    private var effects: Float = UserDefaults.standard.bool(forKey: "crtEnabled") ? 1 : 0
+    private var effects: Float = Profile.defaults.bool(forKey: "crtEnabled") ? 1 : 0
     private var eye = SIMD3<Float>(0, 0, 0)
     private var lookTarget = SIMD3<Float>(0, 0, 0)
     private var hasCamera = false

@@ -36,8 +36,8 @@ final class ChatController {
     private(set) var displayName = "anon"
     /// Sign messages and edits by default (Phosphor → Sign Messages). A signature proves a
     /// message is yours and untouched, but it also can't be denied later.
-    var signByDefault: Bool = UserDefaults.standard.object(forKey: "signMessages") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(signByDefault, forKey: "signMessages") }
+    var signByDefault: Bool = Profile.defaults.object(forKey: "signMessages") as? Bool ?? true {
+        didSet { Profile.defaults.set(signByDefault, forKey: "signMessages") }
     }
     /// Message the user has selected with the arrow keys; commands act on it.
     var focus: Int?
@@ -446,20 +446,20 @@ final class ChatController {
 
     /// Rooms to rejoin at launch, pinned to their fingerprints.
     private var savedRooms: [SavedRoom] {
-        get { (UserDefaults.standard.data(forKey: "joinedRooms")).flatMap { try? JSONDecoder().decode([SavedRoom].self, from: $0) } ?? [] }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "joinedRooms") }
+        get { (Profile.defaults.data(forKey: "joinedRooms")).flatMap { try? JSONDecoder().decode([SavedRoom].self, from: $0) } ?? [] }
+        set { Profile.defaults.set(try? JSONEncoder().encode(newValue), forKey: "joinedRooms") }
     }
 
     /// Fingerprints of rooms we've been in, by name, to spot a name taken over by a new room.
     private var knownRooms: [String: String] {
-        get { UserDefaults.standard.dictionary(forKey: "knownRooms") as? [String: String] ?? [:] }
-        set { UserDefaults.standard.set(newValue, forKey: "knownRooms") }
+        get { Profile.defaults.dictionary(forKey: "knownRooms") as? [String: String] ?? [:] }
+        set { Profile.defaults.set(newValue, forKey: "knownRooms") }
     }
 
     private func persist() {
         guard demoMe == nil else { return }
         savedRooms = rooms.compactMap { id in state(id).map { SavedRoom(name: $0.room.name, id: id) } }
-        UserDefaults.standard.set(activeRoom, forKey: "activeRoom")
+        Profile.defaults.set(activeRoom, forKey: "activeRoom")
     }
 
     // MARK: start
@@ -506,7 +506,7 @@ final class ChatController {
                 try Task.checkCancellation()
 
                 let saved = savedRooms
-                let lastActive = UserDefaults.standard.string(forKey: "activeRoom")
+                let lastActive = Profile.defaults.string(forKey: "activeRoom")
                 for room in saved {
                     // Keyed rooms rejoin with the key from the keychain; if there's none, or it
                     // no longer works, the overview asks for it instead of failing.
@@ -551,7 +551,8 @@ final class ChatController {
     /// else Phosphor's own. Chosen files are used in place, never copied.
     var identityURL: URL {
         launchIdentity
-            ?? UserDefaults.standard.string(forKey: "identityPath").map { URL(fileURLWithPath: $0) }
+            ?? Profile.identityOverride                                  // PHOSPHOR_IDENTITY
+            ?? Profile.defaults.string(forKey: "identityPath").map { URL(fileURLWithPath: $0) }
             ?? IdentityFile.defaultURL
     }
 
@@ -579,7 +580,7 @@ final class ChatController {
     /// before it joins anything.
     private func chooseNameIfUnset(fingerprint: String) async {
         guard displayName.isEmpty || displayName == DisplayName.unset,
-              !(UserDefaults.standard.stringArray(forKey: Self.staysAnonKey) ?? []).contains(fingerprint) else { return }
+              !(Profile.defaults.stringArray(forKey: Self.staysAnonKey) ?? []).contains(fingerprint) else { return }
         note(.info, "pick a name: it's shown with your messages, and you can change it later with /nick")
         var problem: String?
         while !Task.isCancelled {
@@ -589,7 +590,7 @@ final class ChatController {
             }
             guard !Task.isCancelled else { return }
             guard let name = answer else {
-                UserDefaults.standard.set((UserDefaults.standard.stringArray(forKey: Self.staysAnonKey) ?? []) + [fingerprint],
+                Profile.defaults.set((Profile.defaults.stringArray(forKey: Self.staysAnonKey) ?? []) + [fingerprint],
                                           forKey: Self.staysAnonKey)
                 return note(.info, "staying anon · /nick name to pick one later")
             }
@@ -632,9 +633,9 @@ final class ChatController {
             } catch {
                 return note(.error, "that isn't a usable identity file: \(error)")
             }
-            UserDefaults.standard.set(url.path, forKey: "identityPath")
+            Profile.defaults.set(url.path, forKey: "identityPath")
         } else {
-            UserDefaults.standard.removeObject(forKey: "identityPath")
+            Profile.defaults.removeObject(forKey: "identityPath")
         }
         launchIdentity = nil
         guard demoMe == nil else { return note(.info, "the identity is used when not in demo mode") }

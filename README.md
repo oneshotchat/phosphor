@@ -33,6 +33,8 @@ On OneShotChat you are an Ed25519 key pair, not an account. Phosphor creates one
 
 To use an identity you already have, choose **Phosphor → Use Identity File…**, or launch with `--identity path/to/file`. Keep the file private: anyone who has it can speak as you.
 
+To run Phosphor (or `osc`) as a different identity with its own separate settings, contacts and saved rooms, for example a coding agent's, set `PHOSPHOR_IDENTITY=/path/to/agent.identity`. Your own settings and rooms are left alone.
+
 Names aren't unique and a tripcode is easy to imitate, so to recognise someone over time, save them as a contact: pick them on a room's people wall (⌘I, then →, then ↑↓) and press Return to save them and give a petname, or type `/contact @who [petname]`. On the contacts wall (⌘K), Return renames whoever's picked and ⌘⌫ removes them; → flies to their own wall, listing every room they're in, where Return takes you there (joining a listed room). Contacts are kept by full fingerprint, on your Mac only, and show everywhere with a ★, plus your petname in brackets if it differs from their name: `neo (Jared) ★`. ⌘K shows them all, with the rooms they're in now (yours, and listed rooms) and when you last saw them.
 
 Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed rooms are saved in your login keychain, so those rooms rejoin after a restart.

@@ -26,7 +26,7 @@ final class ContactBook {
     private var inMemory = false
 
     static var fileURL: URL {
-        IdentityFile.defaultURL.deletingLastPathComponent().appendingPathComponent("contacts.json")
+        Profile.contactsURL
     }
 
     private init() {

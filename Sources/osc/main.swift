@@ -24,7 +24,9 @@ func option(_ flag: String) -> String? {
 let server = option("--server").flatMap(URL.init(string:)) ?? OSCClient.defaultServer
 let nameOption = option("--name")
 let roomKey = option("--key")
-let identityURL = option("--identity").map { URL(fileURLWithPath: $0) } ?? IdentityFile.defaultURL
+let identityURL = option("--identity").map { URL(fileURLWithPath: $0) }
+    ?? ProcessInfo.processInfo.environment["PHOSPHOR_IDENTITY"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+    ?? IdentityFile.defaultURL
 
 /// Chat text is untrusted: strip terminal control sequences before printing.
 func safe(_ text: String) -> String { SafeText.clean(text) }
