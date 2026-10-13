@@ -41,6 +41,8 @@ To talk to one person, open a **side room**: `/side @who`, or `/side` with someo
 
 Server admins get a small shield beside their name and under their glyph. Phosphor decides who's an admin from the server's list of admin fingerprints, never from a name, and draws the shield itself, so nobody can fake it by putting a symbol in their name.
 
+Phosphor talks to the OneShotChat server. To use another one (a development or local server), choose **Phosphor → Server → Add Server…** or type `/server add address`: Phosphor checks it's a OneShotChat server, remembers it, and switches. Switch back from the same menu or with `/server use main`. Each server has its own saved rooms and room keys; identities and contacts are shared. While you're on a custom server, the status line says which.
+
 Messages are signed by default (**Phosphor → Sign Messages**). Phosphor checks every signature itself: a signed message gets a small drawn tick, an unsigned one says `unsigned` (only the server vouches for it), and one whose signature doesn't verify is marked `✗ BAD SIGNATURE`. Keys for keyed rooms are saved in your login keychain, so those rooms rejoin after a restart.
 
 ## Keys

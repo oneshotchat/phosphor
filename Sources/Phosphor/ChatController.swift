@@ -276,6 +276,8 @@ final class ChatController {
         case closeSide(String, label: String)
         /// Identities: a new one's name; exporting (warn first); removing one.
         case newIdentity(incognito: Bool)
+        /// A custom server's address.
+        case addServer
         case exportIdentity(String, label: String)
         case removeIdentity(String, label: String, linked: Bool)
 
@@ -298,6 +300,7 @@ final class ChatController {
             case .closeSide(_, let label):
                 "close the side room with \(label)? it's deleted for both of you, with everything in it  ⏎ yes · esc no "
             case .newIdentity(let incognito): "name for the new\(incognito ? " incognito" : "") identity › "
+            case .addServer: "server address (e.g. https://api.example.com) › "
             case .exportIdentity(_, let label):
                 "export \(label)? the file IS that identity: anyone with it can speak as it  ⏎ choose where · esc no "
             case .removeIdentity(_, let label, let linked):
@@ -309,7 +312,7 @@ final class ChatController {
         /// A yes/no question: typing is ignored, only ⏎ or esc answer it.
         var isQuestion: Bool {
             switch self {
-            case .rename, .sideFirstMessage, .newIdentity: false
+            case .rename, .sideFirstMessage, .newIdentity, .addServer: false
             case .remove, .deleteMessage, .joinSide, .closeSide, .exportIdentity, .removeIdentity: true
             }
         }
@@ -364,6 +367,9 @@ final class ChatController {
         case .joinSide(_, let fp, _, _):
             contactPrompt = nil
             Task { await joinSide(with: fp) }
+        case .addServer:
+            contactPrompt = nil
+            serverCommand("add " + text)
         case .newIdentity(let incognito):
             let name = text.trimmingCharacters(in: .whitespaces)
             if let problem = DisplayName.problem(name) { return note(.error, problem) }
@@ -916,7 +922,7 @@ final class ChatController {
     func start(room: String?, server: URL = OSCClient.defaultServer) {
         self.server = server
         // This identity's own rooms, room keys and signing setting.
-        Profile.use(identityAt: identityURL)
+        Profile.use(identityAt: identityURL, server: server)
         signByDefault = Profile.identityDefaults.object(forKey: "signMessages") as? Bool ?? true
         if room == nil, savedRooms.isEmpty {
             browser.open()
@@ -1002,7 +1008,7 @@ final class ChatController {
     // MARK: identity
 
     private var startTask: Task<Void, Never>?
-    private var server = OSCClient.defaultServer
+    private(set) var server = OSCClient.defaultServer
 
     /// An identity file for this launch only (`--identity path`).
     var launchIdentity: URL?
@@ -1084,6 +1090,64 @@ final class ChatController {
     /// Switches to another identity file (nil: Phosphor's own). The file is checked first;
     /// then the current identity logs out (leaving its rooms) and the new one logs in and
     /// rejoins the saved rooms.
+    /// The custom server you're on, for the status line; nil on the real one.
+    var customServer: String? { ServerStore.isCustom(server) && demoMe == nil ? ServerStore.label(server) : nil }
+
+    /// Switches server: logs out, then in again on `url`, rejoining your rooms there.
+    func useServer(_ url: URL) {
+        guard demoMe == nil else { return note(.info, "the server is used when not in demo mode") }
+        guard OSCClient.origin(of: url) != OSCClient.origin(of: server) else { return note(.info, "already on it") }
+        ServerStore.current = url
+        note(.info, ServerStore.isCustom(url) ? "switching to \(ServerStore.label(url))…" : "switching back to OneShotChat…")
+        restart(on: url)
+    }
+
+    /// Phosphor → Server → Add Server…: asks for the address in the input line.
+    func askServerAddress() { contactPrompt = .addServer }
+
+    /// `/server`, `/server add address`, `/server use address|main`, `/server remove address`.
+    private func serverCommand(_ rest: String) {
+        let (verb, more) = split(rest.trimmingCharacters(in: .whitespaces))
+        switch verb {
+        case "":
+            let list = (["main (OneShotChat)"] + ServerStore.custom.map { ServerStore.label(URL(string: $0)!) }).joined(separator: " · ")
+            note(.info, "on \(customServer ?? "OneShotChat") · servers: \(list)")
+            note(.info, "/server add address · /server use address (or main) · /server remove address")
+        case "add":
+            guard let url = ServerStore.normalize(more) else {
+                return note(.error, "that isn't a server address (https://…; plain http only for this Mac or the local network)")
+            }
+            guard ServerStore.isCustom(url) else { return useServer(url) }
+            // Check it's a OneShotChat server before keeping it.
+            Task {
+                do {
+                    let d = try await OSCClient(baseURL: url, identity: .generate(), displayName: nil, client: Self.clientInfo).discover()
+                    ServerStore.add(url)
+                    note(.info, "added \(ServerStore.label(url)) (\(SafeText.clean(d.name)), protocol \(SafeText.clean(d.protocol)))")
+                    useServer(url)
+                } catch {
+                    note(.error, "couldn't reach a OneShotChat server at \(ServerStore.label(url)): \(Self.brief(error))")
+                }
+            }
+        case "use":
+            if more == "main" || more.isEmpty { return useServer(ServerStore.main) }
+            guard let url = ServerStore.normalize(more) else { return note(.error, "/server use address, or main") }
+            guard !ServerStore.isCustom(url) || ServerStore.custom.contains(OSCClient.origin(of: url)) else {
+                return note(.error, "\(ServerStore.label(url)) isn't added: /server add \(more)")
+            }
+            useServer(url)
+        case "remove":
+            guard let url = ServerStore.normalize(more), ServerStore.custom.contains(OSCClient.origin(of: url)) else {
+                return note(.error, "no custom server \(more)")
+            }
+            guard OSCClient.origin(of: url) != OSCClient.origin(of: server) else { return note(.error, "switch to another server first") }
+            ServerStore.remove(url)
+            note(.info, "removed \(ServerStore.label(url))")
+        default:
+            note(.error, "/server add address · use address|main · remove address")
+        }
+    }
+
     func useIdentity(at url: URL?) {
         if let url {
             do {
@@ -1098,7 +1162,12 @@ final class ChatController {
         }
         launchIdentity = nil
         guard demoMe == nil else { return note(.info, "the identity is used when not in demo mode") }
+        restart(on: server)
+    }
 
+    /// Logs out and starts again (as the identity now chosen, on `newServer`), rejoining
+    /// that identity's saved rooms there.
+    private func restart(on newServer: URL) {
         let old = session
         old?.onUpdate = nil
         old?.stop()
@@ -1111,11 +1180,12 @@ final class ChatController {
         activeRoom = nil
         focus = nil
         session = nil
+        listed = []                                     // the old server's room listing
         listedAt = nil
         onActiveChanged?(previous, nil)
         Task {
             try? await old?.client.logout()
-            start(room: nil, server: server)
+            start(room: nil, server: newServer)
         }
     }
 
@@ -1310,6 +1380,7 @@ final class ChatController {
         if head == "/contacts" { return showingContacts = true }
         if head == "/delete" { return askDelete(rest) }
         if head == "/identity" || head == "/identities" { return identityCommand(rest) }
+        if head == "/server" { return serverCommand(rest) }
         if demoMe == nil, head == "/side" { return sideCommand(rest, labels: labels) }
         if demoMe == nil, head == "/close" { return closeCommand() }
         if head == "/contact" || head == "/uncontact" { return contactCommand(head, rest, labels: labels) }

@@ -30,21 +30,29 @@ enum Profile {
     /// Set for identities other than the original, to keep their room keys apart too.
     nonisolated(unsafe) private(set) static var identityTag: String?
 
-    /// Switches the per-identity store to the identity in `url`.
-    static func use(identityAt url: URL) {
+    /// Set when on a custom server, so its rooms and keys stay apart from the real one's.
+    nonisolated(unsafe) private(set) static var serverTag: String?
+
+    /// Switches the per-identity store to the identity in `url`, on `server`. The original
+    /// identity on the real server keeps the profile's own store, so nothing of it moves.
+    static func use(identityAt url: URL, server: URL) {
         let fingerprint = (try? IdentityFile.read(from: url))?.identity
-        guard identityOverride == nil, url != IdentityFile.defaultURL, let fingerprint else {
+        let own = identityOverride != nil || url == IdentityFile.defaultURL || fingerprint == nil
+        identityTag = own ? nil : fingerprint.map { String($0.prefix(16)) }
+        let origin = OSCClient.origin(of: server)
+        serverTag = origin == OSCClient.origin(of: OSCClient.defaultServer) ? nil
+            : origin.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "://", with: "-").replacingOccurrences(of: ":", with: "-")
+        guard identityTag != nil || serverTag != nil else {
             identityDefaults = defaults
-            identityTag = nil
             return
         }
-        let tag = String(fingerprint.prefix(16))
-        identityDefaults = UserDefaults(suiteName: (isSandboxed ? "Phosphor.sandbox.identity." : "Phosphor.identity.") + tag) ?? defaults
-        identityTag = tag
+        let prefix = isSandboxed ? "Phosphor.sandbox." : name.map { "Phosphor.profile.\($0)." } ?? "Phosphor."
+        let suite = prefix + (serverTag.map { "server.\($0)." } ?? "") + (identityTag.map { "identity.\($0)" } ?? "original")
+        identityDefaults = UserDefaults(suiteName: suite) ?? defaults
     }
 
     static var keychainService: String {
         let base = isSandboxed ? "Phosphor room key (sandbox)" : name.map { "Phosphor room key (\($0))" } ?? "Phosphor room key"
-        return identityTag.map { base + " [\($0)]" } ?? base
+        return base + (identityTag.map { " [\($0)]" } ?? "") + (serverTag.map { " @\($0)" } ?? "")
     }
 }

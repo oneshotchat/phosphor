@@ -3,7 +3,7 @@ import OSCCore
 import MetalKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var window: NSWindow!
     private var renderer: Renderer!
     private let controller = ChatController()
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let room = args.first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"]
             let serverOverride = env["PHOSPHOR_SERVER"].flatMap(URL.init(string:))
-            let server = serverOverride ?? OSCClient.defaultServer
+            let server = serverOverride ?? ServerStore.current
             // More than one identity: start with the default if you've set one (⌥ while
             // opening asks anyway), else ask which.
             let identities = IdentityStore.all()
@@ -266,6 +266,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleIdentities(_ sender: Any?) { controller.showingIdentities.toggle() }
 
+    /// Phosphor → Server: the real server, your custom ones, and Add Server….
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu.title == "Server" else { return }
+        menu.removeAllItems()
+        let current = OSCClient.origin(of: controller.server)
+        for origin in [OSCClient.origin(of: ServerStore.main)] + ServerStore.custom {
+            let url = URL(string: origin)!
+            let i = NSMenuItem(title: ServerStore.isCustom(url) ? ServerStore.label(url) : "OneShotChat",
+                               action: #selector(pickServer(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = origin
+            i.state = origin == current ? .on : .off
+            menu.addItem(i)
+        }
+        menu.addItem(.separator())
+        let add = NSMenuItem(title: "Add Server…", action: #selector(addServer(_:)), keyEquivalent: "")
+        add.target = self
+        menu.addItem(add)
+    }
+
+    @objc func pickServer(_ sender: NSMenuItem) {
+        guard let origin = sender.representedObject as? String, let url = URL(string: origin) else { return }
+        controller.useServer(url)
+    }
+
+    @objc func addServer(_ sender: Any?) {
+        (window.contentView as? PhosphorView)?.clearInput()
+        controller.askServerAddress()
+    }
+
     /// File panels for the identities wall: open (import) or save (export, suggested name).
     private func pickFile(saveAs: String?, done: @escaping @MainActor (URL?) -> Void) {
         let panel: NSSavePanel
@@ -322,6 +352,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return i
             }(),
             item("Use Identity File Where It Is…", #selector(chooseIdentity(_:)), "", target: self),
+            {
+                let i = NSMenuItem(title: "Server", action: nil, keyEquivalent: "")
+                let menu = NSMenu(title: "Server")
+                menu.delegate = self                            // filled each time it opens
+                i.submenu = menu
+                return i
+            }(),
             NSMenuItem.separator(),
             item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q"),
         ])

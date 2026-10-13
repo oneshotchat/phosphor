@@ -31,7 +31,12 @@ struct HUD {
         case .disconnected: "reconnecting…"
         case .unavailable: "polling"
         }
-        text([room, here, link].filter { !$0.isEmpty }.joined(separator: "  ·  "), mx, y, 15, theme.primary, 1.1)
+        let status = [room, here, link].filter { !$0.isEmpty }.joined(separator: "  ·  ")
+        text(status, mx, y, 15, theme.primary, 1.1)
+        // Only a custom server is worth pointing out.
+        if let custom = controller.customServer {
+            text("  ·  on \(SafeText.clean(custom))", mx + width(status, 15), y, 15, theme.accent, 1.2)
+        }
         y -= 20 * scale
         let myLabel = state?.labels[controller.me] ?? controller.displayName
         if let topic = state?.room.topic, !topic.isEmpty {
