@@ -6,6 +6,7 @@ import OSCCore
 //   osc discover            server info (no login)
 //   osc rooms               the public room browser (no login)
 //   osc whoami              your fingerprint (creates an identity on first use)
+//   osc identity <fp>       someone's current name and status
 //   osc chat <room>         join and chat; type /help inside (--key <room key> for keyed rooms)
 //
 // Options: --server <url>  --name <display name>  --identity <path>  --fingerprints
@@ -61,6 +62,16 @@ case "rooms":
         let people = room.occupantCount.map { "\($0) here" } ?? "?"
         let recent = room.activity?.messagesLast10m.map { "\($0) msgs/10m" } ?? ""
         print("#\(safe(room.name))  \(people)  \(recent)  \(safe(room.topic ?? ""))")
+    }
+
+case "identity":
+    // Someone's current name and status, by full fingerprint (needs a login; read only).
+    guard args.count >= 2, Identity.isFingerprint(args[1]) else { fail("usage: osc identity <full fingerprint>") }
+    do {
+        let info = try await makeClient().identity(args[1])
+        print("\(safe(info.name ?? "(no name)"))  status: \(safe(info.status ?? "?"))")
+    } catch let error as OSCError {
+        print("\(error.code): \(safe(error.message))")
     }
 
 case "whoami":
