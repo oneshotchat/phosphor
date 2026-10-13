@@ -81,7 +81,20 @@ struct HUD {
         }
 
         // Input box, bottom; it grows upward for multi-line messages (⇧⏎).
-        let prompt = controller.browser.isOpen ? controller.browser.inputPrompt : controller.contactPrompt?.prompt ?? "\(room) › "
+        var prompt = controller.browser.isOpen ? controller.browser.inputPrompt : controller.contactPrompt?.prompt ?? "\(room) › "
+        // A prompt too long for the box (a long message quoted in an offer) gives up the
+        // middle of its quote, so its ending (what ⏎ and esc do) always shows; anything
+        // else too long is cut at the end.
+        let roomForPrompt = viewport.x - 2 * mx - 24 * scale - (controller.contactPrompt?.isQuestion == true ? 0 : 200 * scale)
+        if width(prompt, 16) > roomForPrompt {
+            if let open = prompt.firstIndex(of: "“"), let close = prompt.lastIndex(of: "”"), open < close {
+                let head = String(prompt[...open]), tail = String(prompt[close...])
+                var quote = String(prompt[prompt.index(after: open)..<close])
+                while !quote.isEmpty, width(head + quote + "…" + tail, 16) > roomForPrompt { quote.removeLast() }
+                prompt = head + quote.trimmingCharacters(in: .whitespaces) + "…" + tail
+            }
+            while width(prompt, 16) > roomForPrompt, prompt.count > 1 { prompt.removeLast(2); prompt += "…" }
+        }
         let textX = mx + 12 * scale
         let startX = textX + width(prompt, 16)
         let available = viewport.x - mx - 12 * scale - startX
