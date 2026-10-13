@@ -205,7 +205,16 @@ struct HUD {
         }
         // Once a command is typed, how to use it.
         if input.completions.isEmpty, let command = input.typedCommand {
-            let forms = Help.forms(of: command, forOperator: controller.isOperator)
+            var forms = Help.forms(of: command, forOperator: controller.isOperator)
+            // /close means different things: closing this side room, or (admins) any room.
+            if command == "/close" {
+                let side = controller.state?.room.isSide == true
+                forms = forms.filter { side ? $0.topic != .mod : $0.topic == .mod && controller.isAdmin(controller.me) }
+                if forms.isEmpty {
+                    text("/close is for side rooms (only server admins can close other rooms)", x0 + 12 * scale, cy, 13, theme.accent, 0.9)
+                    cy += 18 * scale
+                }
+            }
             for form in forms.reversed() {
                 text("\(form.usage)  ·  \(form.summary)", x0 + 12 * scale, cy, 13, theme.accent, 0.9)
                 cy += 18 * scale
