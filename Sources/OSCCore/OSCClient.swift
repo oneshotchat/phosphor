@@ -123,8 +123,11 @@ public actor OSCClient {
     }
 
     /// Closes a side room you're a member of: deleted at once, with everything in it.
-    public func close(room: String) async throws {
-        let _: Empty = try await call("POST", "/v1/rooms/\(segment(room))/close")
+    /// Closes a room: a side room you're a member of, or (as a server admin) any room but a
+    /// permanent one, without joining it. Deleted at once, with everything in it.
+    public func close(room: String, reason: String? = nil) async throws {
+        struct Body: Encodable { var reason: String? }
+        let _: Empty = try await call("POST", "/v1/rooms/\(segment(room))/close", body: Body(reason: reason))
     }
 
     public func leave(room: String) async throws {

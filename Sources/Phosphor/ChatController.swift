@@ -277,6 +277,8 @@ final class ChatController {
         case joinSide(String, from: String, label: String, preview: String)
         /// Closing the side room you're in, for both of you.
         case closeSide(String, label: String)
+        /// A server admin closing an ordinary room, for everyone.
+        case closeRoom(String, name: String, reason: String?)
         /// Identities: a new one's name; exporting (warn first); removing one.
         case newIdentity(incognito: Bool)
         /// A custom server's address.
@@ -302,6 +304,8 @@ final class ChatController {
                 "\(label) opened a side room with you: “\(preview)”  ⏎ join · esc later "
             case .closeSide(_, let label):
                 "close the side room with \(label)? it's deleted for both of you, with everything in it  ⏎ yes · esc no "
+            case .closeRoom(_, let name, _):
+                "close #\(name) for everyone? it's deleted at once, with everything in it, and can't be undone  ⏎ yes · esc no "
             case .newIdentity(let incognito): "name for the new\(incognito ? " incognito" : "") identity › "
             case .addServer: "server address (e.g. https://api.example.com) › "
             case .exportIdentity(_, let label):
@@ -316,7 +320,7 @@ final class ChatController {
         var isQuestion: Bool {
             switch self {
             case .rename, .sideFirstMessage, .newIdentity, .addServer: false
-            case .remove, .deleteMessage, .joinSide, .closeSide, .exportIdentity, .removeIdentity: true
+            case .remove, .deleteMessage, .joinSide, .closeSide, .closeRoom, .exportIdentity, .removeIdentity: true
             }
         }
     }
@@ -402,6 +406,16 @@ final class ChatController {
                 do { try await session?.client.close(room: room) } catch let error as OSCError {
                     note(.error, "couldn't close it: \(error.message)")
                 } catch { note(.error, "couldn't close it: \(error)") }
+            }
+        case .closeRoom(let room, let name, let reason):
+            contactPrompt = nil
+            Task {
+                do {
+                    try await session?.client.close(room: room, reason: reason)
+                    note(.info, "#\(name) closed")
+                } catch let error as OSCError {
+                    note(.error, "couldn't close #\(name): \(error.message)")
+                } catch { note(.error, "couldn't close #\(name): \(error)") }
             }
         case .rename(let fp, _):
             let petname = text.trimmingCharacters(in: .whitespaces)
@@ -735,11 +749,34 @@ final class ChatController {
     }
 
     /// `/close`: in a side room, close it for both of you (asks first).
-    private func closeCommand() {
-        guard let state, state.room.isSide, let other = SideRoom.other(in: state.room, me: me) else {
-            return note(.error, "/close is for side rooms; to leave a room, /leave")
+    /// `/close`: a side room you're in, for both of you; or, as a server admin, `/close
+    /// [#room] [reason]` closes any room but a permanent one (this one if none is named),
+    /// without having to be in it. Always asks first.
+    private func closeCommand(_ rest: String) {
+        if let state, state.room.isSide, rest.trimmingCharacters(in: .whitespaces).isEmpty,
+           let other = SideRoom.other(in: state.room, me: me) {
+            return contactPrompt = .closeSide(state.id, label: personLabel(other))
         }
-        contactPrompt = .closeSide(state.id, label: personLabel(other))
+        guard isAdmin(me) else {
+            return note(.error, "/close is for side rooms (only server admins can close other rooms; to leave one, /leave)")
+        }
+        let (first, more) = split(rest.trimmingCharacters(in: .whitespaces))
+        let named = first.hasPrefix("#") ? String(first.dropFirst()).lowercased() : nil
+        let reason = (named == nil ? rest : more).trimmingCharacters(in: .whitespaces)
+        guard reason.utf8.count <= 200 else { return note(.error, "a reason can be 200 bytes at most") }
+        let why = reason.isEmpty ? nil : reason
+        if let named {
+            // Look it up (admins can see any room), so the prompt names the real thing.
+            Task {
+                guard let room = try? await session?.client.room(named: named) else { return note(.error, "no room #\(named)") }
+                if room.permanent == true { return note(.error, "#\(named) is permanent: it can't be closed") }
+                contactPrompt = .closeRoom(room.id, name: SafeText.clean(room.name), reason: why)
+            }
+            return
+        }
+        guard let state else { return note(.error, "not in a room: /close #room [reason]") }
+        if state.room.permanent == true { return note(.error, "#\(state.room.name) is permanent: it can't be closed") }
+        contactPrompt = .closeRoom(state.id, name: SafeText.clean(state.room.name), reason: why)
     }
 
     /// `/delete [id] [reason]` or ⌘⌫: the given message, else the selected one, else your
@@ -1385,7 +1422,7 @@ final class ChatController {
         if head == "/identity" || head == "/identities" { return identityCommand(rest) }
         if head == "/server" { return serverCommand(rest) }
         if demoMe == nil, head == "/side" { return sideCommand(rest, labels: labels) }
-        if demoMe == nil, head == "/close" { return closeCommand() }
+        if demoMe == nil, head == "/close" { return closeCommand(rest) }
         if head == "/contact" || head == "/uncontact" { return contactCommand(head, rest, labels: labels) }
         if head == "/room", rest.trimmingCharacters(in: .whitespaces).isEmpty {
             guard state != nil else { return note(.error, "not in a room") }
@@ -1750,7 +1787,11 @@ final class ChatController {
             // A room you left or were banned from won't be rejoined: forget its key.
             if reason == "left" || reason == "banned" || reason == "closed" { RoomKeychain.remove(for: room) }
             if reason == "closed" {
-                note(.info, "the side room with \(sideWith[room].map(personLabel) ?? "them") was closed")
+                if let other = sideWith[room] {
+                    note(.info, "the side room with \(personLabel(other)) was closed")
+                } else {
+                    note(.error, "#\(name) was closed by a server admin" + (detail.map { ": \(SafeText.clean($0))" } ?? ""))
+                }
                 sideWith[room] = nil
                 savedRooms.removeAll { $0.id == room }
                 return removeRoom(room)

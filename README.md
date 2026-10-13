@@ -39,7 +39,7 @@ Names aren't unique and a tripcode is easy to imitate, so to recognise someone o
 
 To talk to one person, open a **side room**: `/side @who`, or `/side` with someone picked on a people or contacts wall. It's a room for just the two of you: hidden from everyone else, run by nobody, and closed after 7 days with nobody in it (either of you can `/close` it sooner). The server operator can still read it, like any room. Phosphor asks for the first message with a mention of them already in it, which is how they find out; when a contact opens one with you, Phosphor offers to join it (it never joins by itself).
 
-Server admins get a small shield beside their name and under their glyph. Phosphor decides who's an admin from the server's list of admin fingerprints, never from a name, and draws the shield itself, so nobody can fake it by putting a symbol in their name.
+Server admins can close any room except a permanent one with `/close [#room] [reason]` (this room if none is named; Phosphor asks first, since it deletes the room and everything in it for everyone). Server admins get a small shield beside their name and under their glyph. Phosphor decides who's an admin from the server's list of admin fingerprints, never from a name, and draws the shield itself, so nobody can fake it by putting a symbol in their name.
 
 Phosphor talks to the OneShotChat server. To use another one (a development or local server), choose **Phosphor → Server → Add Server…** or type `/server add address`: Phosphor checks it's a OneShotChat server, remembers it, and switches. Switch back from the same menu or with `/server use main`. Each server has its own saved rooms and room keys; identities and contacts are shared. While you're on a custom server, the status line says which.
 

@@ -29,6 +29,7 @@ enum Help {
         Command(name: "/join", args: "room invite code", summary: "join with an invite code", topic: .rooms),
         Command(name: "/leave", args: "[room]", summary: "leave this room, or the one named", topic: .rooms),
         Command(name: "/close", args: "", summary: "close this side room, for both of you (asks first)", topic: .rooms),
+        Command(name: "/close", args: "[#room] [reason]", summary: "server admins: close any room but a permanent one (asks first)", topic: .mod),
         Command(name: "/server", args: "[add address · use address|main · remove address]", summary: "which server you're on, and custom ones", topic: .rooms),
         Command(name: "/room", args: "", summary: "this room's settings and people (⌘I)", topic: .rooms),
         Command(name: "/help", args: "[topic]", summary: "this help (⌘/) · topics: chat, rooms, mod, keys", topic: .rooms),

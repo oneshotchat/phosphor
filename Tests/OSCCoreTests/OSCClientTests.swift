@@ -268,7 +268,7 @@ private func makeClient() throws -> OSCClient {
 
     @Test func creatingASideRoomSendsSideWithAndClosingPosts() async throws {
         let room = #"{"room":{"id":"r9","name":"side-x","latest_seq":0,"side":{"members":["me","them"]}},"role":null,"created":true}"#
-        StubServer.reset(loginReplies + [.init(status: 201, json: room), .init(status: 204)])
+        StubServer.reset(loginReplies + [.init(status: 201, json: room), .init(status: 204), .init(status: 204)])
         let client = try makeClient()
         let joined = try await client.join("side-x", create: .side(with: "them"))
         let body = StubServer.seen.last!.body["create"] as? [String: Any]
@@ -279,6 +279,8 @@ private func makeClient() throws -> OSCClient {
         try await client.close(room: "r9")
         #expect(StubServer.seen.last!.method == "POST")
         #expect(StubServer.seen.last!.path == "/v1/rooms/r9/close")
+        try await client.close(room: "r9", reason: "spam")
+        #expect(StubServer.seen.last!.body["reason"] as? String == "spam")
     }
 
     @MainActor @Test func leavingReportsTheRoomName() async throws {
