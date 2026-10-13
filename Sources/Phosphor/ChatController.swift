@@ -1630,6 +1630,14 @@ final class ChatController {
 
     /// `[id] rest`: an explicit message id if the first word is one, else the focused
     /// message, else the latest (of mine, for edits).
+    /// The selected message's text as shown (mentions as @names), for ⌘C; nil if none
+    /// is selected or it was deleted.
+    var selectedMessageText: String? {
+        guard let focus, let m = state?.messages[focus], !m.isDeleted else { return nil }
+        let labels = state?.labels ?? [:]
+        return MentionText.display(m.text) { labels[$0] ?? self.plainName($0) }
+    }
+
     /// Your reactions on the message `/unreact` would act on (an id in `args`, else the
     /// selected one, else the latest).
     func myReactions(_ args: String) -> [String] {

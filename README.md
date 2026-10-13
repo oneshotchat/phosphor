@@ -57,6 +57,7 @@ Messages are signed by default (**Phosphor → Sign Messages**). Phosphor checks
 | ⌘I | Room info, and beside it the room's people (←→); also `/room` |
 | ⌘K | Contacts |
 | ⇧⌘I | Your identities |
+| ⌘C | Copy the selected message's text (on a wall: the picked fingerprint) |
 | ⌘⌫ | Delete the selected message (asks first) |
 | ⌘W | Leave room |
 | ⌘G | Ring or row layout |

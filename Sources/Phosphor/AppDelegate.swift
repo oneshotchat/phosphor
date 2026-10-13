@@ -211,11 +211,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func toggleReading(_ sender: Any?) { renderer.readingMode.toggle() }
     /// ⌘C with the info walls up: the selected person's fingerprint, else the room's.
+    /// ⌘C: on a wall, the picked fingerprint; otherwise the selected message's text.
     @objc func copyFingerprint(_ sender: Any?) {
-        guard let fingerprint = controller.fingerprintToCopy else { return }
+        let copied: String, said: String
+        if let fingerprint = controller.fingerprintToCopy {
+            copied = fingerprint
+            said = "copied \(fingerprint.prefix(12))…"
+        } else if let text = controller.selectedMessageText {
+            copied = text
+            said = "copied message [\(controller.focus ?? 0)]"
+        } else {
+            return controller.note(.info, "select a message (↑↓) to copy it")
+        }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fingerprint, forType: .string)
-        controller.note(.info, "copied \(fingerprint.prefix(12))…")
+        NSPasteboard.general.setString(copied, forType: .string)
+        controller.note(.info, said)
     }
     @objc func toggleContacts(_ sender: Any?) { controller.showingContacts.toggle() }
     /// ⌘S on the people wall: save the selected person as a contact.
@@ -362,7 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSMenuItem.separator(),
             item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q"),
         ])
-        submenu("Edit", [item("Copy Fingerprint", #selector(copyFingerprint(_:)), "c", target: self),
+        submenu("Edit", [item("Copy", #selector(copyFingerprint(_:)), "c", target: self),
                          item("Save as Contact", #selector(saveContact(_:)), "s", target: self),
                          item("Delete…", #selector(deleteSelected(_:)), String(UnicodeScalar(NSBackspaceCharacter)!), target: self),
                          item("Paste", #selector(PhosphorView.paste(_:)), "v")])

@@ -217,7 +217,7 @@ struct HUD {
         }
         if input.completions.isEmpty, let focus = controller.focus {
             let read = focusIsLong ? "  ·  ⌘R reads it all" : ""
-            text("selected [\(focus)]\(read)  ·  /react 👍  ·  /edit text  ·  ⌘⌫ delete  ·  ↑↓ move  ·  esc clear", x0 + 12 * scale, cy, 12, theme.accent, 0.9)
+            text("selected [\(focus)]\(read)  ·  ⌘C copy  ·  /react 👍  ·  /edit text  ·  ⌘⌫ delete  ·  ↑↓ move  ·  esc clear", x0 + 12 * scale, cy, 12, theme.accent, 0.9)
             // When it was posted (and edited), in full, in your time zone.
             if let m = controller.state?.messages[focus], let posted = m.createdAt {
                 var when = "posted " + Self.when(posted)

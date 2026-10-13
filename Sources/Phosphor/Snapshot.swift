@@ -114,6 +114,8 @@ enum DevInput {
                             "return": #selector(NSResponder.insertNewline(_:)), "tab": #selector(NSResponder.insertTab(_:)),
                             "esc": #selector(NSResponder.cancelOperation(_:))]
                         if let key = keys[String(line.dropFirst(7))] { view.doCommand(by: key) }
+                        // "/press copy": ⌘C, through the menu's action.
+                        if line == "/press copy" { NSApp.sendAction(NSSelectorFromString("copyFingerprint:"), to: nil, from: nil) }
                         return
                     }
                     if line == "/dump" {
