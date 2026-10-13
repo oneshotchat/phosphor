@@ -91,6 +91,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var peopleFirst = 0
     /// The contacts wall, in the same spot: how far risen, and its first row shown.
     private var contactsProgress: Float = 0
+    /// The identities wall, in the same spot.
+    private var identitiesProgress: Float = 0
+    private var identitiesFirst = 0
+    private var wasShowingIdentities = false
     private var contactsFirst = 0
     private var contactsFocus: Float = 0
     private var placesFirst = 0
@@ -358,6 +362,20 @@ final class Renderer: NSObject, MTKViewDelegate {
             desiredEye = view.eye
             desiredTarget = view.target
         }
+        // Identities: one wall in the same spot, the same flight.
+        let showingIdentities = controller.showingIdentities && !controller.browser.isOpen
+        if showingIdentities != wasShowingIdentities {
+            wasShowingIdentities = showingIdentities
+            helpMovedAt = time
+            if showingIdentities {
+                ripples.append(FrameGeometry.Ripple(center: RoomInfoScene.base(0), radius: HelpScene.wallWidth / 2,
+                                                    startedAt: time, strength: 0.28))
+            }
+        }
+        if showingIdentities {
+            desiredEye = RoomInfoScene.view(0).eye
+            desiredTarget = RoomInfoScene.view(0).target
+        }
         if !hasCamera { eye = desiredEye; lookTarget = desiredTarget; hasCamera = true }
         // Ease slowly in and out of reading mode and the browser; otherwise follow closely.
         if controller.browser.isOpen != wasBrowsing {
@@ -410,13 +428,13 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         // The help panel dims the world behind it; so, less, does the list of commands.
         let showingCommands = phosphorView.map { $0.input.completionKind == .command && !$0.input.completions.isEmpty } ?? false
-        let dimTarget: Float = controller.browser.isOpen ? 0 : showingInfo || showingContacts ? 0.93 : controller.help != nil ? (Self.helpIn3D ? 0.88 : 0.985)
+        let dimTarget: Float = controller.browser.isOpen ? 0 : showingInfo || showingContacts || showingIdentities ? 0.93 : controller.help != nil ? (Self.helpIn3D ? 0.88 : 0.985)
             : showingCommands ? 0.88 : 0
         helpFade += (dimTarget - helpFade) * min(1, dt * 12)
         if helpFade > 0.01 {
             let keep = 1 - helpFade
             // Rooms dim; with help in the world the floor stays, so the walls stand on it.
-            let helpWalls = (controller.help != nil && Self.helpIn3D) || showingInfo || showingContacts
+            let helpWalls = (controller.help != nil && Self.helpIn3D) || showingInfo || showingContacts || showingIdentities
             for i in (helpWalls ? floorLines : 0)..<geometry.lines.count { geometry.lines[i].color.w *= keep }
             for i in (helpWalls ? floorGlyphs : 0)..<geometry.glyphs.count { geometry.glyphs[i].color.w *= keep }
         }
@@ -430,6 +448,12 @@ final class Renderer: NSObject, MTKViewDelegate {
                                     selected: controller.selectedContact, selectedPlace: controller.selectedPlace,
                                     statuses: controller.identityStatuses, first: &contactsFirst, placesFirst: &placesFirst,
                                     theme: theme)
+        }
+        identitiesProgress = simd_clamp(identitiesProgress + (showingIdentities ? dt / 0.5 : -dt / 0.35), 0, 1)
+        if identitiesProgress > 0 {
+            infoScene.buildIdentities(into: &geometry, rows: controller.identityRows, progress: identitiesProgress,
+                                      selected: controller.selectedIdentity, atLaunch: controller.choosingAtLaunch != nil,
+                                      pinned: IdentityStore.isPinned, first: &identitiesFirst, theme: theme)
         }
 
         // HUD in drawable pixels, origin bottom-left.

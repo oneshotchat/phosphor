@@ -31,7 +31,7 @@ Phosphor opens full screen at the room browser. Pick a room and press Return to 
 
 On OneShotChat you are an Ed25519 key pair, not an account. Phosphor creates one on first launch at `~/Library/Application Support/Phosphor/default.identity`, readable only by you. It then asks for a display name (Esc stays `anon`; `/nick name` changes it later). Names aren't unique: your colour, glyph and tripcode come from the key's fingerprint, which is how people tell you apart.
 
-To use an identity you already have, choose **Phosphor → Use Identity File…**, or launch with `--identity path/to/file`. Keep the file private: anyone who has it can speak as you.
+**Your identities (⇧⌘I or `/identity`)** shows the one in use, with its fingerprint, and any others on this Mac: pick one and press Return to switch (each has its own rooms and settings; contacts are shared). `/identity new name` makes another (`/identity new name incognito` for a throwaway one the server forgets after 24 hours unused), `/identity import` brings in an identity file (checked, then copied into Phosphor's folder), and `/identity export` saves a copy of the picked one. With more than one, Phosphor asks which to start as, unless you've set one with `/identity default` (hold ⌥ while opening to choose anyway). **Phosphor → Use Identity File Where It Is…** uses a file without copying it, and `--identity path/to/file` picks one for a single launch. Keep identity files private: anyone who has one can speak as that identity.
 
 To run Phosphor (or `osc`) as a different identity with its own separate settings, contacts and saved rooms, for example a coding agent's, set `PHOSPHOR_IDENTITY=/path/to/agent.identity`. Your own settings and rooms are left alone.
 
@@ -54,6 +54,7 @@ Messages are signed by default (**Phosphor → Sign Messages**). Phosphor checks
 | ⌘← / ⌘→, ⌘1–⌘9 | Switch rooms |
 | ⌘I | Room info, and beside it the room's people (←→); also `/room` |
 | ⌘K | Contacts |
+| ⇧⌘I | Your identities |
 | ⌘⌫ | Delete the selected message (asks first) |
 | ⌘W | Leave room |
 | ⌘G | Ring or row layout |

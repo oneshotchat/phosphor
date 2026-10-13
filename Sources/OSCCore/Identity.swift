@@ -111,7 +111,12 @@ public struct IdentityFile: Codable, Sendable {
 
     /// `~/Library/Application Support/Phosphor/default.identity`, shared by the app and `osc`.
     public static var defaultURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        // Dev: PHOSPHOR_SANDBOX=/some/dir keeps everything Phosphor stores in that folder
+        // instead, for testing without touching your real identities.
+        if let sandbox = ProcessInfo.processInfo.environment["PHOSPHOR_SANDBOX"], !sandbox.isEmpty {
+            return URL(fileURLWithPath: sandbox, isDirectory: true).appendingPathComponent("default.identity")
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Phosphor", isDirectory: true)
             .appendingPathComponent("default.identity")
     }

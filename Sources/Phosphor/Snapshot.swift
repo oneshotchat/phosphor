@@ -82,7 +82,7 @@ final class Snapshot {
 ///     PHOSPHOR_INPUT=/tmp/phosphor.in swift run Phosphor conformance
 @MainActor
 enum DevInput {
-    static func startIfRequested(controller: ChatController) {
+    static func startIfRequested(controller: ChatController, view: PhosphorView? = nil) {
         guard let path = ProcessInfo.processInfo.environment["PHOSPHOR_INPUT"] else { return }
         setvbuf(stdout, nil, _IOLBF, 0)
         // Echo the room as text so a script can follow along.
@@ -107,6 +107,15 @@ enum DevInput {
                 await MainActor.run {
                     // "/dump": print the room you're in as it stands (history included), and
                     // any prompt waiting in the input line.
+                    // "/press up|down|left|right|return|tab|esc": a key, through the view.
+                    if line.hasPrefix("/press "), let view {
+                        let keys: [String: Selector] = ["up": #selector(NSResponder.moveUp(_:)), "down": #selector(NSResponder.moveDown(_:)),
+                            "left": #selector(NSResponder.moveLeft(_:)), "right": #selector(NSResponder.moveRight(_:)),
+                            "return": #selector(NSResponder.insertNewline(_:)), "tab": #selector(NSResponder.insertTab(_:)),
+                            "esc": #selector(NSResponder.cancelOperation(_:))]
+                        if let key = keys[String(line.dropFirst(7))] { view.doCommand(by: key) }
+                        return
+                    }
                     if line == "/dump" {
                         print("== \(controller.state.map { controller.title($0.room) } ?? "no room")")
                         if let prompt = controller.contactPrompt { print("prompt: \(SafeText.clean(prompt.prompt))") }

@@ -33,6 +33,10 @@ enum Help {
         Command(name: "/help", args: "[topic]", summary: "this help (⌘/) · topics: chat, rooms, mod, keys", topic: .rooms),
 
         Command(name: "/nick", args: "name", summary: "change your display name", topic: .chat),
+        Command(name: "/identity", args: "", summary: "your identities: switch, see your fingerprint (⇧⌘I)", topic: .chat),
+        Command(name: "/identity", args: "new [name] [incognito]", summary: "make a new identity (incognito: gone after 24 h unused)", topic: .chat),
+        Command(name: "/identity", args: "import · export", summary: "bring in an identity file, or save a copy of the picked one", topic: .chat),
+        Command(name: "/identity", args: "rename name · remove · default", summary: "for the identity picked on the wall", topic: .chat),
         Command(name: "/react", args: "[id] 👍", summary: "react to the selected or latest message (tab cycles quick ones)", topic: .chat),
         Command(name: "/unreact", args: "[id] 👍", summary: "take your reaction back", topic: .chat),
         Command(name: "/edit", args: "[id] text", summary: "edit your selected or latest message", topic: .chat),
@@ -70,6 +74,7 @@ enum Help {
         ("⌘← ⌘→  ·  ⌘1–9", "switch rooms"),
         ("⌘I  ·  ⌘W", "room info  ·  leave room"),
         ("⌘K  ·  ⌘S", "contacts  ·  save someone"),
+        ("⇧⌘I", "your identities"),
         ("⌘⌫", "delete the selected message (asks first)"),
         ("⌘C", "copy a fingerprint, on room info"),
         ("⌘G", "ring or row layout"),

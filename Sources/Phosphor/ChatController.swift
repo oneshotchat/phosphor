@@ -38,8 +38,8 @@ final class ChatController {
     private(set) var displayName = "anon"
     /// Sign messages and edits by default (Phosphor → Sign Messages). A signature proves a
     /// message is yours and untouched, but it also can't be denied later.
-    var signByDefault: Bool = Profile.defaults.object(forKey: "signMessages") as? Bool ?? true {
-        didSet { Profile.defaults.set(signByDefault, forKey: "signMessages") }
+    var signByDefault: Bool = Profile.identityDefaults.object(forKey: "signMessages") as? Bool ?? true {
+        didSet { Profile.identityDefaults.set(signByDefault, forKey: "signMessages") }
     }
     /// Message the user has selected with the arrow keys; commands act on it.
     var focus: Int?
@@ -87,7 +87,7 @@ final class ChatController {
     /// What the help panel shows: everything (⌘/, `/help`) or one topic; nil when closed.
     enum HelpView: Equatable { case all, topic(Help.Topic) }
     var help: HelpView? {
-        didSet { if help != nil { showingRoomInfo = false; showingContacts = false } }
+        didSet { if help != nil { showingRoomInfo = false; showingContacts = false; showingIdentities = false } }
     }
 
     /// The room info walls (/room, ⌘I): the room's settings, and beside it its people.
@@ -98,6 +98,7 @@ final class ChatController {
             guard showingRoomInfo else { return }
             help = nil
             showingContacts = false
+            showingIdentities = false
             if !oldValue { infoPage = 0; selectedPerson = nil }
             if let activeRoom { refreshRoles(activeRoom) }
         }
@@ -114,6 +115,7 @@ final class ChatController {
             guard showingContacts else { return }
             help = nil
             showingRoomInfo = false
+            showingIdentities = false
             if !oldValue { selectedContact = nil; contactsPage = 0; selectedPlace = nil }
             noteSightings()
             lookUp(ContactBook.shared.contacts.values.filter { $0.name == nil }.map(\.fingerprint))
@@ -272,6 +274,17 @@ final class ChatController {
         case joinSide(String, from: String, label: String, preview: String)
         /// Closing the side room you're in, for both of you.
         case closeSide(String, label: String)
+        /// Identities: a new one's name; exporting (warn first); removing one.
+        case newIdentity(incognito: Bool)
+        case exportIdentity(String, label: String)
+        case removeIdentity(String, label: String, linked: Bool)
+
+        var isIdentityPrompt: Bool {
+            switch self {
+            case .newIdentity, .exportIdentity, .removeIdentity: true
+            default: false
+            }
+        }
 
         var prompt: String {
             switch self {
@@ -284,14 +297,20 @@ final class ChatController {
                 "\(label) opened a side room with you: “\(preview)”  ⏎ join · esc later "
             case .closeSide(_, let label):
                 "close the side room with \(label)? it's deleted for both of you, with everything in it  ⏎ yes · esc no "
+            case .newIdentity(let incognito): "name for the new\(incognito ? " incognito" : "") identity › "
+            case .exportIdentity(_, let label):
+                "export \(label)? the file IS that identity: anyone with it can speak as it  ⏎ choose where · esc no "
+            case .removeIdentity(_, let label, let linked):
+                linked ? "forget the linked file for \(label)? the file stays where it is  ⏎ yes · esc no "
+                    : "delete \(label) from this Mac? without an exported copy it's gone for good  ⏎ yes · esc no "
             }
         }
 
         /// A yes/no question: typing is ignored, only ⏎ or esc answer it.
         var isQuestion: Bool {
             switch self {
-            case .rename, .sideFirstMessage: false
-            case .remove, .deleteMessage, .joinSide, .closeSide: true
+            case .rename, .sideFirstMessage, .newIdentity: false
+            case .remove, .deleteMessage, .joinSide, .closeSide, .exportIdentity, .removeIdentity: true
             }
         }
     }
@@ -345,6 +364,29 @@ final class ChatController {
         case .joinSide(_, let fp, _, _):
             contactPrompt = nil
             Task { await joinSide(with: fp) }
+        case .newIdentity(let incognito):
+            let name = text.trimmingCharacters(in: .whitespaces)
+            if let problem = DisplayName.problem(name) { return note(.error, problem) }
+            contactPrompt = nil
+            createIdentity(name: name, incognito: incognito)
+        case .exportIdentity(let path, let label):
+            contactPrompt = nil
+            guard let entry = IdentityStore.all().first(where: { $0.url.path == path }) else { return }
+            pickFile?("\(label).identity") { [weak self] url in
+                guard let self, let url else { return }
+                do {
+                    try IdentityStore.export(entry, to: url)
+                    self.note(.info, "exported \(label) to \(url.lastPathComponent): keep it like a password")
+                } catch { self.note(.error, "couldn't export: \(error)") }
+            }
+        case .removeIdentity(let path, let label, _):
+            contactPrompt = nil
+            guard let entry = IdentityStore.all().first(where: { $0.url.path == path }) else { return }
+            do {
+                try IdentityStore.remove(entry)
+                selectedIdentity = identityRows.first?.path
+                note(.info, "\(label) removed from this Mac")
+            } catch { note(.error, "couldn't remove it: \(error)") }
         case .closeSide(let room, _):
             contactPrompt = nil
             Task {
@@ -376,6 +418,163 @@ final class ChatController {
                     note(.error, "couldn't delete [\(m.id)]: \(error)")
                 }
             }
+        }
+    }
+
+    // MARK: identities
+
+    /// The identities wall (⇧⌘I, /identity): yours, on this Mac.
+    var showingIdentities = false {
+        didSet {
+            if !showingIdentities { if contactPrompt?.isIdentityPrompt == true { contactPrompt = nil } }
+            guard showingIdentities else { return }
+            if browser.isOpen { browser.close() }
+            help = nil
+            showingRoomInfo = false
+            showingContacts = false
+            if !oldValue { selectedIdentity = identityRows.first { $0.inUse }?.path ?? identityRows.first?.path }
+        }
+    }
+    var selectedIdentity: String?
+    /// Choosing which identity to start with: the room and server start() is waiting for.
+    private(set) var choosingAtLaunch: (room: String?, server: URL)?
+
+    /// File panels, from the app (open for import, save for export with a suggested name).
+    var pickFile: ((_ saveAs: String?, _ done: @escaping @MainActor (URL?) -> Void) -> Void)?
+
+    struct IdentityRow: Equatable {
+        var path: String
+        var fingerprint: String
+        var label: String
+        var inUse: Bool
+        var notes: [String]
+        var lastUsed: String?
+    }
+
+    var identityRows: [IdentityRow] {
+        let current = choosingAtLaunch == nil ? identityURL.path : nil
+        return IdentityStore.all().map { e in
+            let inUse = e.url.path == current
+            var notes: [String] = []
+            if inUse { notes.append("in use") }
+            if IdentityStore.defaultPath == e.url.path { notes.append("default") }
+            if e.isIncognito { notes.append("incognito") }
+            if e.isLinked { notes.append("linked file") }
+            let name = inUse && demoMe == nil ? displayName : (e.name ?? DisplayName.unset)
+            return IdentityRow(path: e.url.path, fingerprint: e.fingerprint, label: SafeText.clean(name), inUse: inUse, notes: notes,
+                               lastUsed: e.lastUsed.map { RoomInfo.ago(-$0.timeIntervalSinceNow) })
+        }
+    }
+
+    func moveIdentitySelection(_ delta: Int) {
+        let rows = identityRows
+        guard !rows.isEmpty else { return }
+        let i = rows.firstIndex { $0.path == selectedIdentity }.map { $0 + delta } ?? 0
+        selectedIdentity = rows[max(0, min(rows.count - 1, i))].path
+    }
+
+    private var pickedIdentity: IdentityStore.Entry? {
+        IdentityStore.all().first { $0.url.path == selectedIdentity }
+    }
+
+    /// At launch with more than one identity and no default: ask which, then start.
+    func chooseIdentityAtLaunch(room: String?, server: URL) {
+        choosingAtLaunch = (room, server)
+        showingIdentities = true
+        note(.info, "which identity? ↑↓ pick · ⏎ use it · /identity default to stop asking")
+    }
+
+    /// ⏎ on the identities wall: start as, or switch to, the picked identity.
+    func useSelectedIdentity() {
+        guard let entry = pickedIdentity else { return }
+        if let launch = choosingAtLaunch {
+            choosingAtLaunch = nil
+            Profile.defaults.set(entry.url.path, forKey: "identityPath")
+            showingIdentities = false
+            return start(room: launch.room, server: launch.server)
+        }
+        guard entry.url.path != identityURL.path else { return note(.info, "you're already using it") }
+        showingIdentities = false
+        useIdentity(at: entry.url)
+    }
+
+    /// `/identity [new [name] [incognito] | import | export | rename name | remove | default]`.
+    private func identityCommand(_ rest: String) {
+        let (verb, more) = split(rest.trimmingCharacters(in: .whitespaces))
+        if verb.isEmpty { return showingIdentities = true }
+        if IdentityStore.isPinned { return note(.error, "this Phosphor is pinned to one identity (PHOSPHOR_IDENTITY)") }
+        switch verb {
+        case "new":
+            var words = more.split(separator: " ").map(String.init)
+            let incognito = words.last == "incognito"
+            if incognito { words.removeLast() }
+            let name = words.joined(separator: " ")
+            showingIdentities = true
+            if name.isEmpty { return contactPrompt = .newIdentity(incognito: incognito) }
+            createIdentity(name: name, incognito: incognito)
+        case "import":
+            pickFile?(nil) { [weak self] url in
+                guard let self, let url else { return }
+                do {
+                    let entry = try IdentityStore.importFile(url)
+                    self.showingIdentities = true
+                    self.selectedIdentity = entry.url.path
+                    self.note(.info, "imported \(SafeText.clean(entry.name ?? String(entry.fingerprint.prefix(8)))) · ⏎ to use it")
+                } catch {
+                    self.note(.error, "\(error)")
+                }
+            }
+        case "export", "rename", "remove", "default":
+            guard showingIdentities, let entry = pickedIdentity else {
+                showingIdentities = true
+                return note(.info, "pick one (↑↓), then /identity \(verb)\(verb == "rename" ? " name" : "")")
+            }
+            let label = SafeText.clean(entry.name ?? String(entry.fingerprint.prefix(8)))
+            switch verb {
+            case "export": contactPrompt = .exportIdentity(entry.url.path, label: label)
+            case "rename":
+                let name = more.trimmingCharacters(in: .whitespaces)
+                if let problem = DisplayName.problem(name) { return note(.error, name.isEmpty ? "/identity rename name" : problem) }
+                renameIdentity(entry, to: name)
+            case "remove":
+                if entry.url.path == identityURL.path, choosingAtLaunch == nil { return note(.error, "switch to another identity first") }
+                if entry.isOriginal { return note(.error, "that's Phosphor's original identity; it stays (export it to keep a copy elsewhere)") }
+                contactPrompt = .removeIdentity(entry.url.path, label: label, linked: entry.isLinked)
+            default:
+                IdentityStore.defaultPath = IdentityStore.defaultPath == entry.url.path ? nil : entry.url.path
+                note(.info, IdentityStore.defaultPath == nil ? "no default: Phosphor asks at launch" : "\(label) is the default at launch (hold ⌥ while opening to choose)")
+            }
+        default:
+            note(.error, "/identity new [name] [incognito] · import · export · rename name · remove · default")
+        }
+    }
+
+    private func createIdentity(name: String, incognito: Bool) {
+        if let problem = DisplayName.problem(name) { return note(.error, problem) }
+        do {
+            let entry = try IdentityStore.create(name: name, incognito: incognito)
+            selectedIdentity = entry.url.path
+            note(.info, "made \(SafeText.clean(name))\(incognito ? " (incognito: gone after 24 hours unused)" : "") · ⏎ to use it · /identity export to keep a copy")
+        } catch {
+            note(.error, "couldn't make it: \(error)")
+        }
+    }
+
+    private func renameIdentity(_ entry: IdentityStore.Entry, to name: String) {
+        if entry.url.path == identityURL.path, choosingAtLaunch == nil, demoMe == nil {
+            Task {
+                do {
+                    try await session?.client.setName(name)
+                    displayName = name
+                    rememberName(name)
+                    note(.info, "you're \(SafeText.clean(name))")
+                } catch { note(.error, "couldn't rename: \(error)") }
+            }
+        } else if entry.isLinked {
+            note(.error, "a linked file is left as it is: use it, then /nick")
+        } else {
+            IdentityStore.rename(entry, to: name)
+            note(.info, "renamed: the server learns it next time you use it")
         }
     }
 
@@ -624,6 +823,7 @@ final class ChatController {
     /// The fingerprint ⌘C copies with the info walls up: the selected person's, else the room's.
     var fingerprintToCopy: String? {
         if showingContacts { return selectedContact }
+        if showingIdentities { return identityRows.first { $0.path == selectedIdentity }?.fingerprint }
         guard showingRoomInfo, let info = roomInfo else { return nil }
         if infoPage == 1, let selectedPerson { return selectedPerson }
         return info.roomID
@@ -692,20 +892,20 @@ final class ChatController {
 
     /// Rooms to rejoin at launch, pinned to their fingerprints.
     private var savedRooms: [SavedRoom] {
-        get { (Profile.defaults.data(forKey: "joinedRooms")).flatMap { try? JSONDecoder().decode([SavedRoom].self, from: $0) } ?? [] }
-        set { Profile.defaults.set(try? JSONEncoder().encode(newValue), forKey: "joinedRooms") }
+        get { (Profile.identityDefaults.data(forKey: "joinedRooms")).flatMap { try? JSONDecoder().decode([SavedRoom].self, from: $0) } ?? [] }
+        set { Profile.identityDefaults.set(try? JSONEncoder().encode(newValue), forKey: "joinedRooms") }
     }
 
     /// Fingerprints of rooms we've been in, by name, to spot a name taken over by a new room.
     private var knownRooms: [String: String] {
-        get { Profile.defaults.dictionary(forKey: "knownRooms") as? [String: String] ?? [:] }
-        set { Profile.defaults.set(newValue, forKey: "knownRooms") }
+        get { Profile.identityDefaults.dictionary(forKey: "knownRooms") as? [String: String] ?? [:] }
+        set { Profile.identityDefaults.set(newValue, forKey: "knownRooms") }
     }
 
     private func persist() {
         guard demoMe == nil else { return }
         savedRooms = rooms.compactMap { id in state(id).map { SavedRoom(name: $0.room.name, id: id) } }
-        Profile.defaults.set(activeRoom, forKey: "activeRoom")
+        Profile.identityDefaults.set(activeRoom, forKey: "activeRoom")
     }
 
     // MARK: start
@@ -715,6 +915,9 @@ final class ChatController {
     /// so you can pick (being in a listed room is public, so that's your call).
     func start(room: String?, server: URL = OSCClient.defaultServer) {
         self.server = server
+        // This identity's own rooms, room keys and signing setting.
+        Profile.use(identityAt: identityURL)
+        signByDefault = Profile.identityDefaults.object(forKey: "signMessages") as? Bool ?? true
         if room == nil, savedRooms.isEmpty {
             browser.open()
             note(.info, "pick a room to join, or type a name · esc to close")
@@ -727,7 +930,8 @@ final class ChatController {
                 let (identity, file) = url == IdentityFile.defaultURL
                     ? try IdentityFile.loadOrCreate(at: url)
                     : try Self.loadChosenIdentity(url)
-                let client = OSCClient(baseURL: server, identity: identity, displayName: file.name, client: Self.clientInfo)
+                let client = OSCClient(baseURL: server, identity: identity, displayName: file.name, client: Self.clientInfo,
+                                       incognito: IdentityStore.isIncognito(identity.fingerprint))
                 let session = ChatSession(client: client)
                 session.onUpdate = { [weak self] in self?.handle($0) }
                 self.session = session
@@ -748,11 +952,12 @@ final class ChatController {
                     }
                 }
                 displayName = await client.displayName ?? displayName
+                IdentityStore.markUsed(identity.fingerprint)
                 await chooseNameIfUnset(fingerprint: identity.fingerprint)
                 try Task.checkCancellation()
 
                 let saved = savedRooms
-                let lastActive = Profile.defaults.string(forKey: "activeRoom")
+                let lastActive = Profile.identityDefaults.string(forKey: "activeRoom")
                 for room in saved {
                     // Keyed rooms rejoin with the key from the keychain; if there's none, or it
                     // no longer works, the overview asks for it instead of failing.
@@ -871,10 +1076,9 @@ final class ChatController {
     /// Keeps the name as the hint in Phosphor's own identity file, so an exported copy
     /// carries it. Identity files you chose are never written to.
     private func rememberName(_ name: String) {
-        guard identityURL == IdentityFile.defaultURL, var file = try? IdentityFile.read(from: identityURL),
-              (try? file.load()) != nil else { return }
-        file.name = name
-        try? file.write(to: identityURL)
+        // Phosphor's own files only: a linked file (or one set by PHOSPHOR_IDENTITY) is left alone.
+        guard let entry = IdentityStore.all().first(where: { $0.url == identityURL }), !entry.isLinked else { return }
+        IdentityStore.rename(entry, to: name)
     }
 
     /// Switches to another identity file (nil: Phosphor's own). The file is checked first;
@@ -1105,6 +1309,7 @@ final class ChatController {
         // Contacts are local: they work the same live or in the demo.
         if head == "/contacts" { return showingContacts = true }
         if head == "/delete" { return askDelete(rest) }
+        if head == "/identity" || head == "/identities" { return identityCommand(rest) }
         if demoMe == nil, head == "/side" { return sideCommand(rest, labels: labels) }
         if demoMe == nil, head == "/close" { return closeCommand() }
         if head == "/contact" || head == "/uncontact" { return contactCommand(head, rest, labels: labels) }

@@ -591,3 +591,90 @@ extension RoomInfoScene {
         if rest > 0 { text("↓ \(rest) more", right - width("↓ \(rest) more", headingH), y + lineH * 0.25, headingH, theme.primary, 0.55) }
     }
 }
+
+// MARK: - identities
+
+extension RoomInfoScene {
+    /// The identities wall (⇧⌘I, /identity): yours, on this Mac. The one in use is marked;
+    /// ↑↓ pick, ⏎ uses it, and the details strip shows its fingerprint and file. At launch
+    /// (more than one, no default) it asks which to start with.
+    func buildIdentities(into g: inout FrameGeometry, rows: [ChatController.IdentityRow], progress: Float, selected: String?,
+                         atLaunch: Bool, pinned: Bool, first: inout Int, theme: Theme) {
+        let risen = HelpScene.rise(0, progress: progress, focus: 0)
+        guard risen > 0.001 else { return }
+        let base = Self.base(0)
+        drawFrame(into: &g, base: base, risen: risen, label: atLaunch ? "WHICH IDENTITY?" : "IDENTITIES", selected: true, theme: theme,
+                  hint: atLaunch ? "↑↓ pick  ·  ⏎ start as it" : "↑↓ pick  ·  ⏎ use it  ·  /identity for more  ·  esc")
+
+        let w = HelpScene.wallWidth / 2, h = HelpScene.wallHeight
+        let sunk = (1 - risen) * h
+        let now = AppClock.now
+        let pad: Float = 0.65, size: Float = 0.34, lineH = size * 1.5, headingH = size * 0.7
+        func visible(_ y: Float) -> Float? {
+            let above = y - sunk
+            return above > 0.05 ? min(1, above / 0.8) : nil
+        }
+        func text(_ s: String, _ x: Float, _ y: Float, _ height: Float, _ c: SIMD3<Float>, _ intensity: Float) {
+            guard let fade = visible(y) else { return }
+            g.text(s, atlas: atlas, origin: base + SIMD3(x, y - sunk, 0), right: [1, 0, 0], up: [0, 1, 0], height: height,
+                   color: c, intensity: intensity * fade)
+        }
+        func width(_ s: String, _ height: Float) -> Float { FrameGeometry.textWidth(s, atlas: atlas, height: height) }
+        let left = -w + pad, right = w - pad
+        let nameX = left + size * 1.3, notesX = left + 4.4, usedX = left + 8.25
+
+        var y = h - pad - size * 1.5
+        text(atLaunch ? "START AS" : "YOUR IDENTITIES", left, y, size * 1.5, theme.accent, 1.5)
+        let note = pinned ? "pinned by PHOSPHOR_IDENTITY" : "on this Mac · each file IS that identity"
+        text(note, right - width(note, size * 0.7), y, size * 0.7, theme.primary, 0.45)
+
+        // The details strip: the picked identity's fingerprint and file, and what you can do.
+        let stripTop = pad + lineH * 2.75
+        g.line(base + SIMD3(left, stripTop - sunk, 0), base + SIMD3(right, stripTop - sunk, 0), theme.primary,
+               intensity: visible(stripTop) == nil ? 0 : 0.35, width: 1)
+        let detailsY = stripTop - lineH * 0.95, fileY = detailsY - lineH * 0.8, actionsY = fileY - lineH * 0.75
+        let small = size * 0.62
+        if let row = rows.first(where: { $0.path == selected }) {
+            text(row.fingerprint, left, detailsY, small, theme.accent, 0.9)
+            text("⌘C copies", right - width("⌘C copies", small), detailsY, small, theme.primary, 0.6)
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let path = row.path.hasPrefix(home) ? "~" + row.path.dropFirst(home.count) : row.path
+            text(cut(path, small, right - left), left, fileY, small, theme.primary, 0.55)
+        }
+        let actions = pinned ? "this Phosphor uses only this identity"
+            : "/identity new · import · export · rename · remove · default"
+        text(cut(actions, small, right - left), left, actionsY, small, theme.primary, 0.6)
+
+        // Rows.
+        let listTop = y - lineH * 1.5
+        let firstRow = listTop - lineH * 1.05
+        let listBottom = stripTop + lineH * 0.55
+        let capacity = max(1, Int((firstRow - listBottom) / lineH) + 1)
+        if let i = rows.firstIndex(where: { $0.path == selected }) {
+            if i < first { first = i }
+            if i >= first + capacity { first = i - capacity + 1 }
+        }
+        first = max(0, min(first, rows.count - capacity))
+        text("NAME", nameX, listTop, headingH, theme.primary, 0.5)
+        text("LAST USED", usedX, listTop, headingH, theme.primary, 0.5)
+        if first > 0 { text("↑ \(first) more", nameX + width("NAME", headingH) + size, listTop, headingH, theme.primary, 0.55) }
+        if rows.isEmpty { text("none yet: /identity new name", nameX, firstRow, size * 0.9, theme.primary, 0.45) }
+
+        y = firstRow
+        let shown = rows.dropFirst(first).prefix(capacity)
+        for row in shown {
+            let isSelected = row.path == selected
+            if isSelected { text("▸", left - size * 0.9, y, size, theme.accent, 1.5) }
+            drawPerson(RoomInfo.Person(identity: row.fingerprint, label: row.label), &g, base: base, x: left, y: y, size: size,
+                       sunk: sunk, now: now, theme: theme, fade: visible(y), maxWidth: notesX - nameX - size * 0.6,
+                       bright: isSelected || row.inUse, dark: false)
+            let detail = isSelected ? theme.accent : theme.primary
+            let notes = row.notes.joined(separator: " · ")
+            text(cut(notes, size * 0.8, usedX - notesX - size * 0.6), notesX, y, size * 0.8, detail, row.inUse ? 1.1 : 0.7)
+            text(row.lastUsed ?? "—", usedX, y, size * 0.85, detail, 0.7)
+            y -= lineH
+        }
+        let rest = rows.count - first - shown.count
+        if rest > 0 { text("↓ \(rest) more", right - width("↓ \(rest) more", headingH), y + lineH * 0.2, headingH, theme.primary, 0.55) }
+    }
+}

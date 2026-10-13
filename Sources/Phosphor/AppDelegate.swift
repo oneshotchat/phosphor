@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.controller = controller
         view.delegate = renderer
         controller.onEvent = { [renderer] room, event in renderer?.handle(event, in: room) }
+        controller.pickFile = { [weak self] saveAs, done in self?.pickFile(saveAs: saveAs, done: done) }
         controller.onRoomReloaded = { [renderer] room in renderer?.reload(room) }
         controller.onOwnMessage = { [renderer] room, message, edited in renderer?.ownMessage(message, in: room, edited: edited) }
         controller.onActiveChanged = { [renderer] old, new in renderer?.activeChanged(from: old, to: new) }
@@ -81,10 +82,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             let room = args.first(where: { !$0.hasPrefix("-") }) ?? env["PHOSPHOR_ROOM"]
-            let server = env["PHOSPHOR_SERVER"].flatMap(URL.init(string:))
-            if let server { controller.start(room: room, server: server) } else { controller.start(room: room) }
+            let serverOverride = env["PHOSPHOR_SERVER"].flatMap(URL.init(string:))
+            let server = serverOverride ?? OSCClient.defaultServer
+            // More than one identity: start with the default if you've set one (⌥ while
+            // opening asks anyway), else ask which.
+            let identities = IdentityStore.all()
+            let chosenAtLaunch = controller.launchIdentity != nil || IdentityStore.isPinned
+            let asked = NSEvent.modifierFlags.contains(.option)
+            if !chosenAtLaunch, identities.count > 1 {
+                if !asked, let path = IdentityStore.defaultPath, identities.contains(where: { $0.url.path == path }) {
+                    Profile.defaults.set(path, forKey: "identityPath")
+                    controller.start(room: room, server: server)
+                } else {
+                    controller.chooseIdentityAtLaunch(room: room, server: server)
+                }
+            } else {
+                controller.start(room: room, server: server)
+            }
         }
-        DevInput.startIfRequested(controller: controller)
+        DevInput.startIfRequested(controller: controller, view: view)
 
         // Dev: open the room browser at launch, with an optional filter.
         if env["PHOSPHOR_BROWSE"] != nil {
@@ -241,16 +257,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.directoryURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         panel.beginSheetModal(for: window) { [controller] response in
             guard response == .OK, let url = panel.url else { return }
-            MainActor.assumeIsolated { controller.useIdentity(at: url) }
+            MainActor.assumeIsolated {
+                IdentityStore.link(url)                          // listed with your identities from now on
+                controller.useIdentity(at: url)
+            }
         }
     }
 
-    @objc func useOwnIdentity(_ sender: Any?) { controller.useIdentity(at: nil) }
+    @objc func toggleIdentities(_ sender: Any?) { controller.showingIdentities.toggle() }
+
+    /// File panels for the identities wall: open (import) or save (export, suggested name).
+    private func pickFile(saveAs: String?, done: @escaping @MainActor (URL?) -> Void) {
+        let panel: NSSavePanel
+        if let saveAs {
+            panel = NSSavePanel()
+            panel.title = "Export identity"
+            panel.message = "This file IS the identity: anyone holding it can speak as it. Keep it like a password."
+            panel.nameFieldStringValue = saveAs
+        } else {
+            let open = NSOpenPanel()
+            open.title = "Import an identity file"
+            open.message = "Phosphor checks it, then keeps a copy (readable only by you). The original stays where it is."
+            open.canChooseDirectories = false
+            open.allowsMultipleSelection = false
+            open.showsHiddenFiles = true
+            panel = open
+        }
+        panel.beginSheetModal(for: window) { response in
+            let url = response == .OK ? panel.url : nil
+            MainActor.assumeIsolated { done(url) }
+        }
+    }
 
     /// Keeps toggle items' checkmarks current.
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(toggleSigning(_:)) { item.state = controller.signByDefault ? .on : .off }
-        if item.action == #selector(useOwnIdentity(_:)) { item.state = controller.identityURL == IdentityFile.defaultURL ? .on : .off }
+
         return true
     }
     @objc func nextRoom(_ sender: Any?) { controller.cycle(1) }
@@ -274,8 +316,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         submenu("Phosphor", [
             item("Sign Messages", #selector(toggleSigning(_:)), "", target: self),
             NSMenuItem.separator(),
-            item("Use Identity File…", #selector(chooseIdentity(_:)), "", target: self),
-            item("Use Phosphor's Own Identity", #selector(useOwnIdentity(_:)), "", target: self),
+            {
+                let i = item("Identities…", #selector(toggleIdentities(_:)), "i", target: self)
+                i.keyEquivalentModifierMask = [.command, .shift]
+                return i
+            }(),
+            item("Use Identity File Where It Is…", #selector(chooseIdentity(_:)), "", target: self),
             NSMenuItem.separator(),
             item("Quit Phosphor", #selector(NSApplication.terminate(_:)), "q"),
         ])
