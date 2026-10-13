@@ -160,7 +160,7 @@ struct HUD {
                 x += width(item.emoji, 16) + 14 * scale
             }
             let name = Emoji.quickReactions[min(input.completionIndex, Emoji.quickReactions.count - 1)].name
-            text("\(name)  ·  ↑↓ choose  ·  tab takes it  ·  or type one, or :shortcode:", x + 10 * scale, cy, 12, theme.primary, 0.6)
+            text("\(name)  ·  tab for the next, ⇧tab back  ·  ⏎ sends  ·  or type one, or :shortcode:", x + 10 * scale, cy, 12, theme.primary, 0.6)
             cy += 22 * scale
         case .reaction:
             break

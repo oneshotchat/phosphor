@@ -151,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Dev: pre-type into the input ("\n" for new lines).
         if let typed = env["PHOSPHOR_TYPE"] {
             view.devType(typed.replacingOccurrences(of: "\\n", with: "\n"))
+            for _ in 0..<(env["PHOSPHOR_TABS"].flatMap(Int.init) ?? 0) { view.devPressTab() }      // …then Tab this many times
         }
         // …and send it after PHOSPHOR_SEND_AT seconds, then select it if PHOSPHOR_SELECT_SENT is set.
         if let at = env["PHOSPHOR_SEND_AT"].flatMap(Double.init) {

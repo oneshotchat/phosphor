@@ -33,7 +33,7 @@ enum Help {
         Command(name: "/help", args: "[topic]", summary: "this help (⌘/) · topics: chat, rooms, mod, keys", topic: .rooms),
 
         Command(name: "/nick", args: "name", summary: "change your display name", topic: .chat),
-        Command(name: "/react", args: "[id] 👍", summary: "react to the selected or latest message (tab picks a quick one)", topic: .chat),
+        Command(name: "/react", args: "[id] 👍", summary: "react to the selected or latest message (tab cycles quick ones)", topic: .chat),
         Command(name: "/unreact", args: "[id] 👍", summary: "take your reaction back", topic: .chat),
         Command(name: "/edit", args: "[id] text", summary: "edit your selected or latest message", topic: .chat),
         Command(name: "/sedit", args: "[id] text", summary: "edit it, signed", topic: .chat),

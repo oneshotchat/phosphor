@@ -76,14 +76,34 @@ struct InputLine {
         return text[..<space].lowercased()
     }
 
-    /// Right after `/react ` (or `/react 12 `, or `/unreact `), with nothing typed for the
-    /// reaction yet: where a quick reaction goes.
+    /// Where a quick reaction goes: after `/react ` (or `/react 12 `, or `/unreact `), at
+    /// the end of the line, holding nothing yet or one of the quick reactions (so Tab can
+    /// swap it for the next).
     private var reactionSpot: Range<String.Index>? {
-        let before = textBeforeCaret
-        guard before.hasPrefix("/react ") || before.hasPrefix("/unreact "), before.hasSuffix(" ") else { return nil }
-        let words = before.split(separator: " ")
-        guard words.count == 1 || (words.count == 2 && Int(words[1]) != nil) else { return nil }
-        return caretIndex..<caretIndex
+        guard caretIndex == text.endIndex, text.hasPrefix("/react ") || text.hasPrefix("/unreact ") else { return nil }
+        var words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        let last = words.removeLast()
+        guard last.isEmpty || Emoji.quickReactions.contains(where: { $0.emoji == last }),
+              words.count == 1 || (words.count == 2 && Int(words[1]) != nil) else { return nil }
+        return text.index(text.endIndex, offsetBy: -last.count)..<text.endIndex
+    }
+
+    /// The quick reaction in the line now, if any.
+    private var currentReaction: Int? {
+        reactionSpot.flatMap { spot in Emoji.quickReactions.firstIndex { $0.emoji == String(text[spot]) } }
+    }
+
+    /// Tab (⇧Tab back) after `/react `: puts the next quick reaction in the line, replacing
+    /// the one there. Returns false if there's no reaction spot.
+    mutating func cycleReaction(_ delta: Int) -> Bool {
+        guard let spot = reactionSpot else { return false }
+        let count = Emoji.quickReactions.count
+        let next = currentReaction.map { ($0 + delta + count) % count } ?? (delta > 0 ? 0 : count - 1)
+        let emoji = Emoji.quickReactions[next].emoji
+        text.replaceSubrange(spot, with: emoji)
+        caret = text.utf16.count
+        completionIndex = next
+        return true
     }
 
     /// Turns a `:shortcode:` just typed (ending at the caret) into its emoji, in place.
@@ -98,9 +118,9 @@ struct InputLine {
 
     mutating func updateCompletions(labels: [String], commands: [String] = []) {
         if reactionSpot != nil {
-            if completionKind != .reaction { completionIndex = 0 }
             completionKind = .reaction
             completions = Emoji.quickReactions.map(\.emoji)
+            completionIndex = currentReaction ?? 0
         } else if let query = commandQuery {
             if completionKind != .command { completionIndex = 0 }
             completionKind = .command
@@ -122,7 +142,7 @@ struct InputLine {
         switch completionKind {
         case .command: return commandQuery.map { !completions.contains($0) } ?? false
         case .mention: return mentionQuery.map { !completions.contains($0.prefix) } ?? false
-        case .reaction: return reactionSpot != nil
+        case .reaction: return reactionSpot.map { $0.isEmpty } ?? false     // Return with none yet takes 👍
         }
     }
 
@@ -277,7 +297,9 @@ final class PhosphorView: MTKView, NSTextInputClient {
             guard controller?.browser.isOpen != true else { return }
             input.insert("\n")
         case #selector(insertTab(_:)):
-            input.acceptCompletion()
+            if !input.cycleReaction(1) { input.acceptCompletion() }
+        case #selector(insertBacktab(_:)):
+            _ = input.cycleReaction(-1)
         case #selector(deleteBackward(_:)): input.deleteBackward()
         case #selector(deleteForward(_:)): input.deleteForward()
         // With help open and nothing typed, ←→ move between its walls.
@@ -309,9 +331,11 @@ final class PhosphorView: MTKView, NSTextInputClient {
         case #selector(moveDown(_:)) where controller?.showingRoomInfo == true && controller?.infoPage == 1 && input.completions.isEmpty:
             controller?.movePersonSelection(1)
         case #selector(moveUp(_:)):
-            if input.completions.isEmpty { controller?.moveFocus(-1) } else { input.cycleCompletion(-1) }
+            // ↑↓ pick people or commands from a list; quick reactions are Tab's, so here
+            // they still move between messages.
+            if input.completions.isEmpty || input.completionKind == .reaction { controller?.moveFocus(-1) } else { input.cycleCompletion(-1) }
         case #selector(moveDown(_:)):
-            if input.completions.isEmpty { controller?.moveFocus(1) } else { input.cycleCompletion(1) }
+            if input.completions.isEmpty || input.completionKind == .reaction { controller?.moveFocus(1) } else { input.cycleCompletion(1) }
         case #selector(scrollPageUp(_:)), #selector(pageUp(_:)):
             renderer?.camera.liftTarget += 8
         case #selector(scrollPageDown(_:)), #selector(pageDown(_:)):
