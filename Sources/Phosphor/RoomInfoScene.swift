@@ -624,9 +624,14 @@ extension RoomInfoScene {
         let nameX = left + size * 1.3, notesX = left + 4.4, usedX = left + 8.25
 
         var y = h - pad - size * 1.5
-        text(atLaunch ? "START AS" : "YOUR IDENTITIES", left, y, size * 1.5, theme.accent, 1.5)
-        let note = pinned ? "pinned by PHOSPHOR_IDENTITY" : "on this Mac · each file IS that identity"
-        text(note, right - width(note, size * 0.7), y, size * 0.7, theme.primary, 0.45)
+        let title = atLaunch ? "START AS" : "YOUR IDENTITIES"
+        text(title, left, y, size * 1.5, theme.accent, 1.5)
+        // The note takes what's left beside the title: shrinking a little, else shorter.
+        let room = right - left - width(title, size * 1.5) - size
+        var note = pinned ? "pinned by PHOSPHOR_IDENTITY" : "on this Mac · each file IS that identity"
+        if fitted(note, size * 0.7, room) < size * 0.55 { note = pinned ? "pinned" : "on this Mac" }
+        let noteSize = fitted(note, size * 0.7, room)
+        text(note, right - width(note, noteSize), y, noteSize, theme.primary, 0.45)
 
         // The details strip: the picked identity's fingerprint and file, and what you can do.
         let stripTop = pad + lineH * 2.75
