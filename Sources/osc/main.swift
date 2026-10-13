@@ -10,7 +10,7 @@ import OSCCore
 //
 // Options: --server <url>  --name <display name>  --identity <path>
 
-let version = "0.1.0"
+let version = "0.2.0"
 setvbuf(stdout, nil, _IOLBF, 0)   // line-buffered even when piped, so live events show promptly
 var args = Array(CommandLine.arguments.dropFirst())
 

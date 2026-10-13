@@ -27,7 +27,7 @@ final class ChatController {
 
     /// Sent with every message: the same for every user (the protocol asks that nothing
     /// user-specific goes in it); the URL is the public repo.
-    static let clientInfo = ClientInfo(name: "phosphor", version: "0.1.0", url: "https://github.com/oneshotchat/phosphor")
+    static let clientInfo = ClientInfo(name: "phosphor", version: "0.2.0", url: "https://github.com/oneshotchat/phosphor")
 
     private(set) var session: ChatSession?
     /// Joined rooms in order; ⌘1 is the first.
