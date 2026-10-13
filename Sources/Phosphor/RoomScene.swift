@@ -385,7 +385,8 @@ final class RoomScene {
                 continue
             }
             let label = labelLine(message, labels: labels, origin: origin)
-            let labelWidth = textWidth(label.name + label.time + label.rest, height: labelHeight)
+            let labelWidth = textWidth(label.name + label.time + label.signature + label.rest, height: labelHeight)
+                + (label.signed ? labelHeight * 1.3 : 0)
                 + (mark(message.author.identity) != nil ? labelHeight * 1.6 : 0)
             let width = min(maxWidth, max(textLines.map { textWidth($0, height: textHeight) }.max() ?? 0,
                                           labelWidth,
@@ -420,7 +421,7 @@ final class RoomScene {
     }
 
     private func buildPanel(into g: inout FrameGeometry, message: Message, lines textLines: [String], hidden: Int,
-                            label: (name: String, time: String, rest: String),
+                            label: (name: String, time: String, signed: Bool, signature: String, rest: String),
                             s0: Float, s1: Float, y0: Float, y1: Float, surface: Surface, sky: Float,
                             author: SIMD3<Float>?, theme: Theme, me: String, origin: String, focused: Bool,
                             eye: SIMD3<Float>, now: Float, retention: Int?) {
@@ -484,6 +485,19 @@ final class RoomScene {
         g.surfaceText(label.time, atlas: atlas, surface: surface, s: restS, baseline: baseline, height: labelHeight,
                       color: labelColor, intensity: 0.5 * bright, eye: eye)
         restS += textWidth(label.time, height: labelHeight)
+        // The signature: a quiet drawn tick when it checks out (most messages; a name can't
+        // fake it), a dim "unsigned", or a loud warning when it doesn't verify.
+        if label.signed {
+            let at = restS + labelHeight * 0.75
+            Icon.tick.draw(into: &g, at: surface.point(at, baseline + labelHeight * 0.36), size: labelHeight * 0.32,
+                           right: surface.tangent(at: at), up: [0, 1, 0], color: labelColor, intensity: 0.6 * bright)
+            restS += labelHeight * 1.3
+        } else if !label.signature.isEmpty {
+            let bad = signatureStatus(message, origin: origin) == .invalid
+            g.surfaceText(label.signature, atlas: atlas, surface: surface, s: restS, baseline: baseline, height: labelHeight,
+                          color: bad ? theme.accent : labelColor, intensity: (bad ? 1.4 : 0.45) * bright, eye: eye)
+            restS += textWidth(label.signature, height: labelHeight)
+        }
         g.surfaceText(label.rest, atlas: atlas, surface: surface, s: restS, baseline: baseline, height: labelHeight,
                       color: labelColor, intensity: 0.9 * bright, eye: eye)
         baseline -= labelHeight * 0.4 + textHeight * 1.05
@@ -607,17 +621,20 @@ final class RoomScene {
 
     /// A message's header: the author's name, then (after any mark) how long ago it was
     /// posted, then its signature mark, "(edited)" and id.
-    private func labelLine(_ m: Message, labels: [String: String], origin: String) -> (name: String, time: String, rest: String) {
+    private func labelLine(_ m: Message, labels: [String: String], origin: String)
+        -> (name: String, time: String, signed: Bool, signature: String, rest: String) {
         let name = SafeText.clean(labels[m.author.identity] ?? m.author.name)
         let time = m.createdAt.map { "  " + Self.age(-$0.timeIntervalSinceNow) } ?? ""
-        var rest = ""
-        switch signatureStatus(m, origin: origin) {
-        case .valid: rest += " ✓signed"
-        case .invalid: rest += " ✗ BAD SIGNATURE"
-        case .unsigned: break
+        // A tombstone has no signature to speak of: nothing is shown for it.
+        let status = m.isDeleted ? nil : signatureStatus(m, origin: origin)
+        let signature = switch status {
+        case .invalid: "  ✗ BAD SIGNATURE"
+        case .unsigned: "  unsigned"
+        case .valid, nil: ""
         }
-        if m.editedAt != nil { rest += " (edited)" }
-        return (name, time, rest + "  [\(m.id)]")
+        var rest = ""
+        if m.editedAt != nil { rest += "  (edited)" }
+        return (name, time, status == .valid, signature, rest + "  [\(m.id)]")
     }
 
     /// "now", "4m", "3h", "2d": short enough for a message header.

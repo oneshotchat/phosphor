@@ -39,7 +39,7 @@ Names aren't unique and a tripcode is easy to imitate, so to recognise someone o
 
 Server admins get a small shield beside their name and under their glyph. Phosphor decides who's an admin from the server's list of admin fingerprints, never from a name, and draws the shield itself, so nobody can fake it by putting a symbol in their name.
 
-Messages are signed by default (**Phosphor → Sign Messages**). Keys for keyed rooms are saved in your login keychain, so those rooms rejoin after a restart.
+Messages are signed by default (**Phosphor → Sign Messages**). Phosphor checks every signature itself: a signed message gets a small drawn tick, an unsigned one says `unsigned` (only the server vouches for it), and one whose signature doesn't verify is marked `✗ BAD SIGNATURE`. Keys for keyed rooms are saved in your login keychain, so those rooms rejoin after a restart.
 
 ## Keys
 

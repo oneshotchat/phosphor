@@ -50,7 +50,7 @@ final class DemoFeed {
         // Two sams on purpose, so tripcodes show up; the rest vary by room.
         var rng = SplitMix64(string: name)
         let names = ["sam", "sam"] + Self.handles.filter { $0 != "sam" }.shuffled(using: &rng).prefix(10)
-        people = [(me, myName)] + regulars + names.map { (Identity.generate().fingerprint, $0) }
+        people = [(me, myName)] + regulars + names.map { Self.person($0) }
         self.regulars = Set(regulars.map(\.fp))
         present = Set(people.prefix(9).map(\.fp))
 
@@ -103,15 +103,15 @@ final class DemoFeed {
     /// (call `onSent`), with the live event echoing back a moment later.
     var onSent: ((Message) -> Void)?
 
-    func input(_ line: String) {
+    func input(_ line: String, sign: Bool = true) {
         let parts = line.split(separator: " ", maxSplits: 2).map(String.init)
         if parts.first == "/react", parts.count >= 2 {
             let id = Int(parts[1]).flatMap { messages[$0] != nil ? $0 : nil } ?? messages.keys.max()!
             react(id, parts.count == 3 ? parts[2] : parts[1], by: me)
         } else if parts.first == "/edit", let id = messages.filter({ ($0.value["author"] as? [String: Any])?["identity"] as? String == me }).keys.max() {
-            edit(id, text: String(line.dropFirst(6)))
+            edit(id, text: String(line.dropFirst(6)), sign: sign)
         } else if !line.hasPrefix("/") {
-            post(from: me, text: line, asReply: true)
+            post(from: me, text: line, asReply: true, sign: sign)
             respondToYou()
         }
     }
@@ -202,11 +202,11 @@ final class DemoFeed {
         }
     }
 
-    private func post(from fp: String, text: String, mentions: [String] = [], asReply: Bool = false) {
+    private func post(from fp: String, text: String, mentions: [String] = [], asReply: Bool = false, sign: Bool? = nil) {
         seq += 1
         var mentioned = mentions
         for case .mention(let target) in MentionText.segments(text) where !mentioned.contains(target) { mentioned.append(target) }
-        let dict = message(id: seq, author: people.first { $0.fp == fp }!, text: text, mentions: mentioned)
+        let dict = message(id: seq, author: people.first { $0.fp == fp }!, text: text, mentions: mentioned, sign: sign)
         messages[seq] = dict
         guard asReply, let sent = Self.decode(Message.self, dict) else {
             emit("message.created", ["message": dict], seq: seq)
@@ -225,10 +225,14 @@ final class DemoFeed {
         emit("reaction.added", ["message_id": id, "reaction": reaction, "identity": fp])
     }
 
-    private func edit(_ id: Int, text: String) {
+    private func edit(_ id: Int, text: String, sign: Bool = true) {
         guard var dict = messages[id] else { return }
+        let version = (dict["version"] as? Int ?? 1) + 1
         dict["text"] = text
-        dict["version"] = (dict["version"] as? Int ?? 1) + 1
+        dict["version"] = version
+        if let author = (dict["author"] as? [String: Any])?["identity"] as? String {
+            dict["signature"] = signature(author: author, id: id, version: version, text: text, sign: sign)
+        }
         dict["edited_at"] = Self.timestamp(Date())
         messages[id] = dict
         emit("message.edited", ["message": dict])
@@ -257,12 +261,32 @@ final class DemoFeed {
         onEvent?(event)
     }
 
+    /// Every demo person's key, so their messages can be signed like real clients' are.
+    /// Fingerprint → identity. The demo's origin (no server) is "".
+    static var keys: [String: Identity] = [:]
+
+    /// A new demo person: a real key pair, remembered for signing.
+    static func person(_ name: String) -> (fp: String, name: String) {
+        let identity = Identity.generate()
+        keys[identity.fingerprint] = identity
+        return (identity.fingerprint, name)
+    }
+
+    /// The signature for a version of a message, or nil to leave it unsigned. Others
+    /// sign about nine messages in ten, so the demo shows both; yours follow `sign`.
+    private func signature(author: String, id: Int, version: Int, text: String, sign: Bool? = nil) -> Any {
+        guard let key = Self.keys[author], sign ?? (Int.random(in: 0..<10) != 0) else { return NSNull() }
+        let string = SignedString.message(server: "", room: roomID, author: author, nonce: "demo\(id)nonce", version: version, text: text)
+        return (try? key.sign(string)) ?? NSNull()
+    }
+
     private func message(id: Int, author: (fp: String, name: String), text: String, mentions: [String] = [],
-                         at date: Date = Date()) -> [String: Any] {
+                         at date: Date = Date(), sign: Bool? = nil) -> [String: Any] {
         [
             "id": id, "room": roomID, "author": ["identity": author.fp, "name": author.name],
             "client": ["name": "demo"], "text": text, "mentions": mentions, "nonce": "demo\(id)nonce",
-            "signature": NSNull(), "version": 1, "created_at": Self.timestamp(date), "edited_at": NSNull(),
+            "signature": signature(author: author.fp, id: id, version: 1, text: text, sign: sign),
+            "version": 1, "created_at": Self.timestamp(date), "edited_at": NSNull(),
             // Expiring when the room's retention says, or every message would look nearly
             // gone (they fade over the last tenth of it).
             "reactions": [] as [Any], "expires_at": Self.timestamp(date.addingTimeInterval(Double(Self.retention))),

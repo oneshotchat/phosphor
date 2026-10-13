@@ -88,9 +88,10 @@ final class Chat {
     }
 
     func render(_ m: Message) -> String {
+        // Most messages are signed: mark the exceptions.
         let signature = switch m.signatureStatus(server: session.client.origin) {
-        case .unsigned: ""
-        case .valid: " [signed]"
+        case .unsigned: m.isDeleted ? "" : " [unsigned]"
+        case .valid: ""
         case .invalid: " [BAD SIGNATURE]"
         }
         let edited = m.editedAt != nil ? " (edited)" : ""

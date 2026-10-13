@@ -734,7 +734,7 @@ final class ChatController {
 
     /// `paceScale` below 1 makes every room chattier.
     func startDemo(speakers: Int, name: String, paceScale: Double = 1) {
-        let me = Identity.generate().fingerprint
+        let me = DemoFeed.person(name).fp
         demoMe = me
         demoName = name
         displayName = name
@@ -747,7 +747,7 @@ final class ChatController {
         ]
         // neo is about: in three of your rooms and a listed one, so a contact in several
         // rooms shows on the contacts wall.
-        let neo = (fp: Identity.generate().fingerprint, name: "neo")
+        let neo = DemoFeed.person("neo")
         for (name, topic, speakers, pace, history) in specs {
             let scaled = Int(Double(pace.lowerBound) * paceScale)...Int(Double(pace.upperBound) * paceScale)
             let feed = DemoFeed(name: name, topic: topic, me: me, myName: self.demoName, speakers: speakers, pace: scaled,
@@ -934,7 +934,7 @@ final class ChatController {
                 displayName = rest
                 return note(.info, "you're \(rest) (in the demo)")
             case "/sign", "/unsigned":
-                if let activeRoom, !rest.isEmpty { demos[activeRoom]?.input(MentionText.compose(rest, labels: labels)) }
+                if let activeRoom, !rest.isEmpty { demos[activeRoom]?.input(MentionText.compose(rest, labels: labels), sign: head == "/sign") }
                 return
             case "/react", "/edit":
                 break
@@ -944,7 +944,7 @@ final class ChatController {
                     return note(.error, known ? "\(head) needs the server: not in demo mode" : "unknown command \(head); /help")
                 }
             }
-            if let activeRoom { demos[activeRoom]?.input(MentionText.compose(line, labels: labels)) }
+            if let activeRoom { demos[activeRoom]?.input(MentionText.compose(line, labels: labels), sign: signByDefault) }
             return
         }
         Task {

@@ -11,6 +11,7 @@ enum Icon {
     case person, crown               // people here, operators
     case pen, penCrossed             // signing, not signing
     case star, shield                // a contact, a server admin: drawn by us, so a name can't imitate them
+    case tick                        // a signature that checks out
 
     /// The one mark beside a person: a server admin's shield, else a contact's star.
     static func mark(admin: Bool, contact: Bool) -> Icon? { admin ? .shield : contact ? .star : nil }
@@ -71,6 +72,8 @@ enum Icon {
             path(arc(0, -0.95, 0.8, 0.85, from: 0.15, to: .pi - 0.15))
         case .crown:
             path([(-0.9, -0.6), (0.9, -0.6), (0.95, 0.55), (0.45, 0.0), (0, 0.75), (-0.45, 0.0), (-0.95, 0.55)], closed: true)
+        case .tick:
+            path([(-0.85, 0.0), (-0.3, -0.6), (0.85, 0.75)])
         case .star:
             path((0..<10).map { i in
                 let a = Float.pi / 2 + Float(i) * .pi / 5, r: Float = i % 2 == 0 ? 1.0 : 0.42
