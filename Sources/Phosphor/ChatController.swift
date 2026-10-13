@@ -171,7 +171,9 @@ final class ChatController {
         var people: Int
         /// When they last spoke there, from the loaded history (your rooms only).
         var lastSpoke: String?
-        var shown: String { "#" + name + (yours ? "" : " (listed)") }
+        /// Your side room with them.
+        var isSide = false
+        var shown: String { isSide ? "side room" : "#" + name + (yours ? "" : " (listed)") }
     }
 
     /// Rooms someone is in that we can see: the ones you're in (the one you're looking at
@@ -185,7 +187,8 @@ final class ChatController {
             guard let s = state(room), s.occupants[fingerprint] != nil else { continue }
             let spoke = s.orderedMessages.last { $0.author.identity == fingerprint }?.createdAt
             found.append(Place(id: s.room.id, name: SafeText.clean(s.room.name), yours: true, access: s.room.access,
-                               people: s.occupants.count, lastSpoke: spoke.map { RoomInfo.ago(-$0.timeIntervalSinceNow) }))
+                               people: s.occupants.count, lastSpoke: spoke.map { RoomInfo.ago(-$0.timeIntervalSinceNow) },
+                               isSide: s.room.isSide))
             seen.insert(s.room.id)
         }
         for room in listed where !seen.contains(room.id) && room.occupants?.contains(where: { $0.identity == fingerprint }) == true {

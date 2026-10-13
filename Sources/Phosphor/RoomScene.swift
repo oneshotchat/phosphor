@@ -248,7 +248,7 @@ final class RoomScene {
             let contact = ContactBook.shared.contact(fp)
             people[fp]?.name = short
             people[fp]?.isContact = contact != nil
-            people[fp]?.petname = contact?.petname.flatMap { $0.isEmpty || $0 == occupant.name ? nil : $0 }
+            people[fp]?.petname = contact?.petname.flatMap { $0.isEmpty || $0.lowercased() == occupant.name.lowercased() ? nil : $0 }
         }
         people = people.filter { fp, p in state.occupants[fp] != nil || (p.leftAt.map { now - $0 < 2.5 } ?? false) }
 

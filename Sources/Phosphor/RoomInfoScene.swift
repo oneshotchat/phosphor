@@ -579,10 +579,12 @@ extension RoomInfoScene {
             let isSelected = place.id == selectedPlace
             let color = isSelected ? theme.accent : theme.primary
             if isSelected { text("▸", left + size * 0.2, y, size, theme.accent, 1.5) }
-            text(cut("#" + place.name, size, kindX - placeX - size * 0.5), placeX, y, size, color, isSelected ? 1.5 : place.yours ? 1.15 : 0.85)
-            var kind = place.yours ? "your room" : "listed"
-            if place.access == "key" { kind += " · key" } else if place.access == "invite" { kind += " · invite" }
-            text(kind, kindX, y, size * 0.75, color, place.yours ? 0.75 : 0.55)
+            // A side room is the two of you: named for what it is, not its made-up name.
+            let shown = place.isSide ? "side room" : "#" + place.name
+            text(cut(shown, size, kindX - placeX - size * 0.5), placeX, y, size, color, isSelected ? 1.5 : place.yours ? 1.15 : 0.85)
+            var kind = place.isSide ? "just you two" : place.yours ? "your room" : "listed"
+            if !place.isSide { if place.access == "key" { kind += " · key" } else if place.access == "invite" { kind += " · invite" } }
+            text(cut(kind, size * 0.75, peopleX - kindX - size * 0.5), kindX, y, size * 0.75, color, place.yours ? 0.75 : 0.55)
             text("\(place.people)", peopleX, y, size * 0.85, color, 0.8)
             text(place.lastSpoke ?? "—", spokeX, y, size * 0.85, color, place.lastSpoke == nil ? 0.45 : 0.8)
             y -= lineH

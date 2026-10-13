@@ -51,7 +51,10 @@ final class ContactBook {
     func display(_ fingerprint: String, label: String, name: String? = nil) -> String {
         guard let contact = contacts[fingerprint] else { return label }
         let own = name ?? String(label.split(separator: "#").first ?? Substring(label))     // without its tripcode
-        if let pet = contact.petname, !pet.isEmpty, pet != own, pet != label { return "\(label) (\(pet))" }
+        // Only when it adds something: not their own name again, whatever its capitals.
+        if let pet = contact.petname, !pet.isEmpty, pet.lowercased() != own.lowercased(), pet.lowercased() != label.lowercased() {
+            return "\(label) (\(pet))"
+        }
         return label
     }
 
