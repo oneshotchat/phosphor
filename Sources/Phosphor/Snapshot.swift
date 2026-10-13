@@ -112,7 +112,8 @@ enum DevInput {
                         if let prompt = controller.contactPrompt { print("prompt: \(SafeText.clean(prompt.prompt))") }
                         for m in controller.state?.orderedMessages ?? [] {
                             let text = MentionText.display(m.text) { controller.state?.labels[$0] ?? String($0.prefix(8)) }
-                            print("[\(m.id)] \(SafeText.clean(controller.state?.labels[m.author.identity] ?? m.author.name)): \(SafeText.clean(text))")
+                            let reactions = (m.reactions ?? []).map { "\($0.reaction)×\($0.count)" }.joined(separator: " ")
+                            print("[\(m.id)] \(SafeText.clean(controller.state?.labels[m.author.identity] ?? m.author.name)): \(SafeText.clean(text))\(reactions.isEmpty ? "" : "  " + reactions)")
                         }
                         return
                     }

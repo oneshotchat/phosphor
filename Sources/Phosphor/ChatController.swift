@@ -1127,6 +1127,11 @@ final class ChatController {
             case "/sign", "/unsigned":
                 if let activeRoom, !rest.isEmpty { demos[activeRoom]?.input(MentionText.compose(rest, labels: labels), sign: head == "/sign") }
                 return
+            case "/unreact":
+                let (target, typed) = unreactTarget(rest)
+                guard let target, let activeRoom else { return note(.error, "no reaction of yours to take back") }
+                demos[activeRoom]?.input("/unreact \(target.id) \(Emoji.expand(typed.trimmingCharacters(in: .whitespaces)))")
+                return
             case "/react", "/edit":
                 break
             default:
@@ -1153,7 +1158,7 @@ final class ChatController {
                         onOwnMessage?(edited.room, edited, true)
                     }
                 case "/react", "/unreact":
-                    let (target, typed) = targetMessage(rest, mine: false)
+                    let (target, typed) = head == "/unreact" ? unreactTarget(rest) : targetMessage(rest, mine: false)
                     let reaction = Emoji.expand(typed.trimmingCharacters(in: .whitespaces))      // :+1: pasted whole
                     guard let target, !reaction.isEmpty else { return note(.error, "usage: /react [id] 👍") }
                     guard !target.isDeleted else { return note(.error, "[\(target.id)] was deleted: it can't be reacted to") }
@@ -1346,6 +1351,26 @@ final class ChatController {
 
     /// `[id] rest`: an explicit message id if the first word is one, else the focused
     /// message, else the latest (of mine, for edits).
+    /// Your reactions on the message `/unreact` would act on (an id in `args`, else the
+    /// selected one, else the latest).
+    func myReactions(_ args: String) -> [String] {
+        let (target, _) = unreactTarget(args)
+        return target.map(reactions(byMeOn:)) ?? []
+    }
+
+    private func reactions(byMeOn m: Message) -> [String] {
+        (m.reactions ?? []).filter { $0.identities?.contains(me) == true }.map(\.reaction)
+    }
+
+    /// What /unreact acts on: an id in `args`, else the selected message, else the latest
+    /// message you've reacted to (the latest message overall rarely has your reaction).
+    private func unreactTarget(_ args: String) -> (Message?, String) {
+        let (first, rest) = split(args)
+        if let id = Int(first), let m = state?.messages[id] { return (m, rest) }
+        if let focus, let m = state?.messages[focus] { return (m, args) }
+        return (state?.orderedMessages.last { !reactions(byMeOn: $0).isEmpty }, args)
+    }
+
     private func targetMessage(_ args: String, mine: Bool) -> (Message?, String) {
         let (first, rest) = split(args)
         if let id = Int(first), let m = state?.messages[id] { return (m, rest) }

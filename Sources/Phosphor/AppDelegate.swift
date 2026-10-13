@@ -150,8 +150,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Dev: pre-type into the input ("\n" for new lines).
         if let typed = env["PHOSPHOR_TYPE"] {
-            view.devType(typed.replacingOccurrences(of: "\\n", with: "\n"))
-            for _ in 0..<(env["PHOSPHOR_TABS"].flatMap(Int.init) ?? 0) { view.devPressTab() }      // …then Tab this many times
+            // …after PHOSPHOR_TYPE_AT seconds if given, then Tab PHOSPHOR_TABS times.
+            DispatchQueue.main.asyncAfter(deadline: .now() + (env["PHOSPHOR_TYPE_AT"].flatMap(Double.init) ?? 0)) { [view] in
+                view.devType(typed.replacingOccurrences(of: "\\n", with: "\n"))
+                for _ in 0..<(env["PHOSPHOR_TABS"].flatMap(Int.init) ?? 0) { view.devPressTab() }
+            }
         }
         // …and send it after PHOSPHOR_SEND_AT seconds, then select it if PHOSPHOR_SELECT_SENT is set.
         if let at = env["PHOSPHOR_SEND_AT"].flatMap(Double.init) {

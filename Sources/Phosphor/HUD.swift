@@ -153,17 +153,24 @@ struct HUD {
             // Quick reactions, in a row, only while they're on offer: Tab takes the
             // highlighted one, ↑↓ move.
             var x = x0 + 12 * scale
-            for (i, item) in Emoji.quickReactions.enumerated() {
+            for (i, emoji) in input.completions.enumerated() {
                 let selected = i == input.completionIndex
                 if selected { text("▸", x, cy, 14, theme.accent, 1.3); x += width("▸ ", 14) }
-                text(item.emoji, x, cy, 16, theme.primary, selected ? 1.4 : 0.8)
-                x += width(item.emoji, 16) + 14 * scale
+                text(SafeText.clean(emoji), x, cy, 16, theme.primary, selected ? 1.4 : 0.8)
+                x += width(SafeText.clean(emoji), 16) + 14 * scale
             }
-            let name = Emoji.quickReactions[min(input.completionIndex, Emoji.quickReactions.count - 1)].name
-            text("\(name)  ·  tab for the next, ⇧tab back  ·  ⏎ sends  ·  or type one, or :shortcode:", x + 10 * scale, cy, 12, theme.primary, 0.6)
+            let current = input.completions[min(input.completionIndex, input.completions.count - 1)]
+            let name = Emoji.quickReactions.first { $0.emoji == current }?.name ?? ""
+            let unreact = input.text.hasPrefix("/unreact ")
+            let hint = (unreact ? "your reactions on it" : "") + (name.isEmpty || unreact ? "" : name)
+                + "  ·  tab for the next, ⇧tab back  ·  ⏎ " + (unreact ? "removes it" : "sends  ·  or type one, or :shortcode:")
+            text(hint, x + 10 * scale, cy, 12, theme.primary, 0.6)
             cy += 22 * scale
         case .reaction:
-            break
+            if input.text.hasPrefix("/unreact "), !input.text.dropFirst(9).contains(where: { !$0.isWhitespace && !$0.isNumber }) {
+                text("you haven't reacted to that message", x0 + 12 * scale, cy, 12, theme.primary, 0.6)
+                cy += 22 * scale
+            }
         case .mention:
             for (i, label) in input.completions.enumerated() {
                 let selected = i == input.completionIndex

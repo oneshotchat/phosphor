@@ -13,6 +13,9 @@ struct InputLine {
     var marked = ""
     private(set) var completions: [String] = []
     private(set) var completionKind = CompletionKind.mention
+    /// What Tab cycles through after /react (the quick reactions) or /unreact (your own
+    /// reactions on that message).
+    private(set) var reactionOptions: [String] = Emoji.quickReactions.map(\.emoji)
     var completionIndex = 0
 
     private var caretIndex: String.Index { String.Index(utf16Offset: caret, in: text) }
@@ -83,23 +86,24 @@ struct InputLine {
         guard caretIndex == text.endIndex, text.hasPrefix("/react ") || text.hasPrefix("/unreact ") else { return nil }
         var words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
         let last = words.removeLast()
-        guard last.isEmpty || Emoji.quickReactions.contains(where: { $0.emoji == last }),
+        guard last.isEmpty || reactionOptions.contains(last),
               words.count == 1 || (words.count == 2 && Int(words[1]) != nil) else { return nil }
         return text.index(text.endIndex, offsetBy: -last.count)..<text.endIndex
     }
 
     /// The quick reaction in the line now, if any.
     private var currentReaction: Int? {
-        reactionSpot.flatMap { spot in Emoji.quickReactions.firstIndex { $0.emoji == String(text[spot]) } }
+        reactionSpot.flatMap { spot in reactionOptions.firstIndex(of: String(text[spot])) }
     }
 
     /// Tab (⇧Tab back) after `/react `: puts the next quick reaction in the line, replacing
     /// the one there. Returns false if there's no reaction spot.
     mutating func cycleReaction(_ delta: Int) -> Bool {
         guard let spot = reactionSpot else { return false }
-        let count = Emoji.quickReactions.count
+        let count = reactionOptions.count
+        guard count > 0 else { return true }
         let next = currentReaction.map { ($0 + delta + count) % count } ?? (delta > 0 ? 0 : count - 1)
-        let emoji = Emoji.quickReactions[next].emoji
+        let emoji = reactionOptions[next]
         text.replaceSubrange(spot, with: emoji)
         caret = text.utf16.count
         completionIndex = next
@@ -116,10 +120,11 @@ struct InputLine {
         caret = start.utf16Offset(in: text) + emoji.utf16.count
     }
 
-    mutating func updateCompletions(labels: [String], commands: [String] = []) {
+    mutating func updateCompletions(labels: [String], commands: [String] = [], reactions: [String]? = nil) {
+        reactionOptions = reactions ?? Emoji.quickReactions.map(\.emoji)
         if reactionSpot != nil {
             completionKind = .reaction
-            completions = Emoji.quickReactions.map(\.emoji)
+            completions = reactionOptions
             completionIndex = currentReaction ?? 0
         } else if let query = commandQuery {
             if completionKind != .command { completionIndex = 0 }
@@ -380,8 +385,14 @@ final class PhosphorView: MTKView, NSTextInputClient {
         }
         if controller?.contactPrompt != nil { return input.updateCompletions(labels: []) }   // a petname, not a command or mention
         let me = controller?.me
+        // After /unreact, Tab offers only the reactions you put on that message.
+        var reactions: [String]?
+        if input.text.hasPrefix("/unreact ") {
+            let args = input.text.dropFirst("/unreact ".count).split(separator: " ").dropLast(input.text.hasSuffix(" ") ? 0 : 1)
+            reactions = controller?.myReactions(args.joined(separator: " ")) ?? []
+        }
         input.updateCompletions(labels: labelsToFingerprints().filter { $0.value != me }.map(\.key),
-                                commands: Help.names(forOperator: controller?.isOperator ?? false))
+                                commands: Help.names(forOperator: controller?.isOperator ?? false), reactions: reactions)
     }
 
     /// Tripcode label → fingerprint for everyone in view; labels are unique by construction.

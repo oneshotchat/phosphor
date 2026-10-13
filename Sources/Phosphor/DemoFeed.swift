@@ -105,9 +105,11 @@ final class DemoFeed {
 
     func input(_ line: String, sign: Bool = true) {
         let parts = line.split(separator: " ", maxSplits: 2).map(String.init)
-        if parts.first == "/react", parts.count >= 2 {
+        if parts.first == "/react" || parts.first == "/unreact", parts.count >= 2 {
             let id = Int(parts[1]).flatMap { messages[$0] != nil ? $0 : nil } ?? messages.keys.max()!
-            react(id, parts.count == 3 ? parts[2] : parts[1], by: me)
+            let reaction = parts.count == 3 ? parts[2] : parts[1]
+            if parts.first == "/react" { react(id, reaction, by: me) }
+            else { emit("reaction.removed", ["message_id": id, "reaction": reaction, "identity": me]) }
         } else if parts.first == "/edit", let id = messages.filter({ ($0.value["author"] as? [String: Any])?["identity"] as? String == me }).keys.max() {
             edit(id, text: String(line.dropFirst(6)), sign: sign)
         } else if !line.hasPrefix("/") {
