@@ -105,6 +105,17 @@ enum DevInput {
             guard let handle = FileHandle(forReadingAtPath: path) else { return }
             for try await line in handle.bytes.lines {
                 await MainActor.run {
+                    // "/dump": print the room you're in as it stands (history included), and
+                    // any prompt waiting in the input line.
+                    if line == "/dump" {
+                        print("== \(controller.state.map { controller.title($0.room) } ?? "no room")")
+                        if let prompt = controller.contactPrompt { print("prompt: \(SafeText.clean(prompt.prompt))") }
+                        for m in controller.state?.orderedMessages ?? [] {
+                            let text = MentionText.display(m.text) { controller.state?.labels[$0] ?? String($0.prefix(8)) }
+                            print("[\(m.id)] \(SafeText.clean(controller.state?.labels[m.author.identity] ?? m.author.name)): \(SafeText.clean(text))")
+                        }
+                        return
+                    }
                     var labels: [String: String] = [:]
                     for (fp, label) in controller.state?.labels ?? [:] { labels[label] = fp }
                     controller.submit(line, labels: labels)

@@ -50,9 +50,9 @@ struct RoomInfo: Equatable {
     /// itself doesn't name (role holders who aren't here).
     @MainActor
     init(state: RoomState, me: String, myName: String, signing: Bool, isOperator: Bool, roles: [RoleEntry]?,
-         identities: [String: IdentityInfo] = [:], admins: Set<String> = [], now: Date = Date()) {
+         identities: [String: IdentityInfo] = [:], admins: Set<String> = [], title: String? = nil, now: Date = Date()) {
         let room = state.room
-        name = "#" + SafeText.clean(room.name)
+        name = title ?? "#" + SafeText.clean(room.name)
         roomID = room.id
         statuses = identities.compactMapValues(\.status)
         topic = room.topic.map(SafeText.clean).flatMap { $0.isEmpty ? nil : $0.replacingOccurrences(of: "\n", with: " ") }
@@ -90,6 +90,19 @@ struct RoomInfo: Equatable {
                 change: moderated ? "/room unmoderated" : "/room moderated"),
             kept,
         ]
+        if room.isSide {
+            // A side room: fixed settings nobody can change, so no "how to change" lines,
+            // and a note in place of a topic (side rooms have none).
+            var keptFixed = kept
+            keptFixed.change = nil
+            settings = [
+                Row(icon: .eyeHidden, label: "VISIBILITY", value: "hidden: only the two of you can find it"),
+                Row(icon: .envelope, label: "JOINING", value: "only the two of you"),
+                Row(icon: .bubble, label: "SPEAKING", value: "both of you"),
+                keptFixed,
+            ]
+            topic = "nobody runs a side room, and either of you can close it (/close) · the server operator can read it, like any room"
+        }
 
         let labels = state.labels
         var authorNames: [String: String] = [:]

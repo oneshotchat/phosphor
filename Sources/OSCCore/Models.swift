@@ -92,6 +92,15 @@ public struct Room: Codable, Sendable, Equatable {
     public var activity: RoomActivity?
     public var occupantCount: Int?
     public var occupants: [Occupant]?
+    /// Set only on a side room: its two members.
+    public var side: SideInfo?
+
+    public var isSide: Bool { side != nil }
+}
+
+/// A side room's two members (protocol §6, "Side rooms").
+public struct SideInfo: Codable, Sendable, Equatable {
+    public var members: [String]
 }
 
 public struct RoomList: Codable, Sendable {
@@ -113,6 +122,17 @@ public struct RoomCreateOptions: Codable, Sendable {
     public var topic: String?
     public var retentionSeconds: Int?
     public var key: String?
+    /// Starting roles, by fingerprint, set as the room is created.
+    public var roles: [String: String]?
+    /// Creates a side room with this person instead; only `retentionSeconds` may go with it.
+    public var sideWith: String?
+
+    /// A side room with `other`, keeping messages for `retention` seconds.
+    public static func side(with other: String, retention: Int = 7 * 86400) -> RoomCreateOptions {
+        var options = RoomCreateOptions(retentionSeconds: retention)
+        options.sideWith = other
+        return options
+    }
 
     public init(visibility: String? = nil, access: String? = nil, speaking: String? = nil,
                 topic: String? = nil, retentionSeconds: Int? = nil, key: String? = nil) {

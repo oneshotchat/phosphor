@@ -122,6 +122,11 @@ public actor OSCClient {
         return try await call("POST", "/v1/rooms/join", body: Body(name: name, expect: expect, key: key, invite: invite, create: create))
     }
 
+    /// Closes a side room you're a member of: deleted at once, with everything in it.
+    public func close(room: String) async throws {
+        let _: Empty = try await call("POST", "/v1/rooms/\(segment(room))/close")
+    }
+
     public func leave(room: String) async throws {
         let _: Empty = try await call("POST", "/v1/rooms/\(segment(room))/leave")
     }

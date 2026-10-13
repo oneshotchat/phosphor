@@ -266,6 +266,12 @@ final class ChatController {
         case remove(String, label: String)
         /// Deleting a message: yours, or (as an operator or admin) someone else's.
         case deleteMessage(Message, reason: String?, whose: String)
+        /// The first message of a side room you're opening (the room is made when it's sent).
+        case sideFirstMessage(String, label: String, warned: Bool)
+        /// Someone opened a side room with you: join it?
+        case joinSide(String, from: String, label: String, preview: String)
+        /// Closing the side room you're in, for both of you.
+        case closeSide(String, label: String)
 
         var prompt: String {
             switch self {
@@ -273,14 +279,19 @@ final class ChatController {
             case .remove(_, let label): "remove \(label) from contacts?  ⏎ yes · esc no "
             case .deleteMessage(let m, _, let whose):
                 "delete \(whose) message [\(m.id)]? it can't be undone, and people may have seen it  ⏎ yes · esc no "
+            case .sideFirstMessage(_, let label, _): "first message to \(label), in a side room › "
+            case .joinSide(_, _, let label, let preview):
+                "\(label) opened a side room with you: “\(preview)”  ⏎ join · esc later "
+            case .closeSide(_, let label):
+                "close the side room with \(label)? it's deleted for both of you, with everything in it  ⏎ yes · esc no "
             }
         }
 
         /// A yes/no question: typing is ignored, only ⏎ or esc answer it.
         var isQuestion: Bool {
             switch self {
-            case .rename: false
-            case .remove, .deleteMessage: true
+            case .rename, .sideFirstMessage: false
+            case .remove, .deleteMessage, .joinSide, .closeSide: true
             }
         }
     }
@@ -318,9 +329,29 @@ final class ChatController {
     }
 
     /// Return in a contact prompt.
-    func answerContactPrompt(_ text: String) {
+    func answerContactPrompt(_ text: String, labels: [String: String] = [:]) {
         guard let prompt = contactPrompt else { return }
         switch prompt {
+        case .sideFirstMessage(let fp, let label, let warned):
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            // The mention is the notification: say so (once) if they took it out.
+            let composed = MentionText.compose(text, labels: labels.merging([label: fp]) { _, new in new })
+            if !composed.contains("<@\(fp)>"), !warned {
+                contactPrompt = .sideFirstMessage(fp, label: label, warned: true)
+                return note(.info, "\(label) won't be told about it without @\(label) · ⏎ again to send anyway")
+            }
+            contactPrompt = nil
+            Task { await openSide(with: fp, first: composed) }
+        case .joinSide(_, let fp, _, _):
+            contactPrompt = nil
+            Task { await joinSide(with: fp) }
+        case .closeSide(let room, _):
+            contactPrompt = nil
+            Task {
+                do { try await session?.client.close(room: room) } catch let error as OSCError {
+                    note(.error, "couldn't close it: \(error.message)")
+                } catch { note(.error, "couldn't close it: \(error)") }
+            }
         case .rename(let fp, _):
             let petname = text.trimmingCharacters(in: .whitespaces)
             if let problem = petname.isEmpty ? nil : DisplayName.problem(petname) { return note(.error, "petname: \(problem)") }
@@ -346,6 +377,161 @@ final class ChatController {
                 }
             }
         }
+    }
+
+    // MARK: side rooms
+
+    /// Text for the input line after a command: the side room prompt's ready-made mention.
+    private(set) var pendingInput: String?
+    func takePendingInput() -> String? { defer { pendingInput = nil } ; return pendingInput }
+    /// Whether the input line is empty, so an offer can take it over without
+    /// interrupting what someone's typing.
+    var inputEmpty = true
+
+    /// Side rooms you've been offered (room name, who opened it), newest last.
+    private var sideOffers: [(room: String, from: String)] = []
+    /// The conformance bot counts as a contact for side rooms (its `!side` test).
+    private var conformanceBot: String?
+    /// Who each side room you're in is with, kept for when it closes.
+    private var sideWith: [String: String] = [:]
+
+    /// How a room is named on screen: "#lobby", or "side room · neo".
+    func title(_ room: Room) -> String {
+        guard room.isSide, let other = SideRoom.other(in: room, me: me) else { return "#" + SafeText.clean(room.name) }
+        return "side room · " + personLabel(other)
+    }
+
+    /// Someone's name as shown, with your petname if they're a contact.
+    func personLabel(_ fp: String) -> String {
+        let name = plainName(fp)
+        return ContactBook.shared.display(fp, label: name, name: name)
+    }
+
+    /// `/side @who`, or with someone picked on a people or contacts wall: start a side
+    /// room with them, beginning with its first message (the input fills with a mention
+    /// of them, which you can see and change). `/side` alone joins the last one you were
+    /// offered.
+    private func sideCommand(_ rest: String, labels: [String: String]) {
+        let arg = rest.trimmingCharacters(in: .whitespaces)
+        var target: String?
+        if arg.hasPrefix("@") {
+            guard let fp = labels[String(arg.dropFirst())] else { return note(.error, "no one called \(arg) here (type @ to pick someone)") }
+            target = fp
+        } else if Identity.isFingerprint(arg) {
+            target = arg
+        } else if arg.isEmpty {
+            target = pickedPerson
+            if target == nil, let offer = sideOffers.last {
+                Task { await self.joinSide(with: offer.from) }
+                return
+            }
+        }
+        guard let fp = target else { return note(.error, "/side @who, or pick someone on a people or contacts wall first") }
+        guard fp != me else { return note(.error, "a side room needs someone else") }
+        let label = plainName(fp)
+        contactPrompt = .sideFirstMessage(fp, label: label, warned: false)
+        pendingInput = "@" + label + " "
+    }
+
+    /// Joins, creating it if needed, the side room for you and `other`, after checking
+    /// it's a proper one. Returns its state, or nil (having said why).
+    private func enterSide(with other: String, create: Bool) async -> RoomState? {
+        guard let session else { return nil }
+        let name = SideRoom.name(me, other, server: origin)
+        if let existing = rooms.first(where: { state($0)?.room.name == name }), let state = state(existing) {
+            activate(existing)
+            return state
+        }
+        // Check before joining: if it exists, it must be the two of you.
+        if let found = try? await session.client.room(named: name), !SideRoom.isProper(found, me: me, other: other, server: origin) {
+            note(.error, "this isn't a proper side room, so Phosphor won't join it")
+            return nil
+        }
+        do {
+            let state = try await session.join(name, create: create ? .side(with: other) : nil)
+            guard SideRoom.isProper(state.room, me: me, other: other, server: origin) else {
+                try? await session.leave(state.id)
+                note(.error, "this isn't a proper side room, so Phosphor left it")
+                return nil
+            }
+            sideWith[state.id] = other
+            sideOffers.removeAll { $0.room == name }
+            if case .joinSide = contactPrompt { contactPrompt = nil }
+            knownRooms[name] = state.id
+            if !rooms.contains(state.id) { rooms.append(state.id) }
+            activate(state.id)
+            persist()
+            return state
+        } catch let error as OSCError where error.code == "room_not_found" {
+            note(.error, "that side room isn't there any more")
+        } catch let error as OSCError {
+            note(.error, "side room: \(error.message)")
+        } catch {
+            note(.error, "side room: \(error)")
+        }
+        return nil
+    }
+
+    private func openSide(with other: String, first text: String) async {
+        guard let state = await enterSide(with: other, create: true) else { return }
+        do {
+            if let sent = try await session?.send(text, to: state.id, sign: signByDefault) { onOwnMessage?(state.id, sent, false) }
+            note(.info, "side room with \(personLabel(other)): the server operator can read it, like any room · it closes after 7 days with nobody in it · either of you can /close it")
+        } catch let error as OSCError {
+            note(.error, "couldn't send the first message: \(error.message)")
+        } catch {
+            note(.error, "couldn't send the first message: \(error)")
+        }
+    }
+
+    private func joinSide(with other: String) async {
+        guard await enterSide(with: other, create: false) != nil else { return }
+        note(.info, "side room with \(personLabel(other)) · it closes after 7 days with nobody in it · either of you can /close it")
+    }
+
+    /// A mention from a room you're not in: a side room offer if the room is the side room
+    /// for you and its author, and they're a contact (or the conformance bot). Never joins
+    /// by itself.
+    private func offerIfSide(_ item: MentionItem) -> Bool {
+        let author = item.message.author.identity
+        guard item.room.name.hasPrefix("side-"), author != me,
+              SideRoom.name(me, author, server: origin) == item.room.name,
+              ContactBook.shared.isContact(author) || author == conformanceBot else { return false }
+        offerSide(room: item.room.name, from: author,
+                  preview: SafeText.clean(MentionText.display(item.message.text) { self.plainName($0) }))
+        return true
+    }
+
+    private func offerSide(room: String, from: String, preview: String) {
+        if !sideOffers.contains(where: { $0.room == room }) { sideOffers.append((room, from)) }
+        var short = preview.replacingOccurrences(of: "\n", with: " ")
+        if short.count > 60 { short = String(short.prefix(59)) + "…" }
+        if contactPrompt == nil, inputEmpty, !browser.isOpen {
+            contactPrompt = .joinSide(room, from: from, label: personLabel(from), preview: short)
+        } else {
+            note(.mention, "\(personLabel(from)) opened a side room with you · /side to join")
+        }
+    }
+
+    /// At launch: any contact's side room that's open, in case its first message expired.
+    private func lookForContactsSideRooms() async {
+        guard let session else { return }
+        for contact in ContactBook.shared.contacts.keys.prefix(50) {
+            let name = SideRoom.name(me, contact, server: origin)
+            guard !rooms.contains(where: { state($0)?.room.name == name }),
+                  let room = try? await session.client.room(named: name),
+                  SideRoom.isProper(room, me: me, other: contact, server: origin) else { continue }
+            if !sideOffers.contains(where: { $0.room == name }) { sideOffers.append((name, contact)) }
+            note(.mention, "\(personLabel(contact)) has a side room open with you · /side to join")
+        }
+    }
+
+    /// `/close`: in a side room, close it for both of you (asks first).
+    private func closeCommand() {
+        guard let state, state.room.isSide, let other = SideRoom.other(in: state.room, me: me) else {
+            return note(.error, "/close is for side rooms; to leave a room, /leave")
+        }
+        contactPrompt = .closeSide(state.id, label: personLabel(other))
     }
 
     /// `/delete [id] [reason]` or ⌘⌫: the given message, else the selected one, else your
@@ -483,7 +669,8 @@ final class ChatController {
     var roomInfo: RoomInfo? {
         guard let state, let activeRoom else { return nil }
         return RoomInfo(state: state, me: me, myName: displayName, signing: signByDefault, isOperator: isOperator,
-                        roles: roomRoles[activeRoom] ?? demos[activeRoom]?.roles, identities: identities, admins: admins)
+                        roles: roomRoles[activeRoom] ?? demos[activeRoom]?.roles, identities: identities, admins: admins,
+                        title: title(state.room))
     }
 
     /// ←→ in help: the next or previous topic, stopping at the ends.
@@ -583,6 +770,8 @@ final class ChatController {
                     }
                 }
                 if let room { await join(room) }
+                conformanceBot = session.discovery?.conformanceBot
+                await lookForContactsSideRooms()
                 if browser.isOpen { await refreshListing(maxAge: 0, pages: 3) }
 
                 // Keep the room listing fresh. It's public and cacheable for 10 s; once a
@@ -916,6 +1105,8 @@ final class ChatController {
         // Contacts are local: they work the same live or in the demo.
         if head == "/contacts" { return showingContacts = true }
         if head == "/delete" { return askDelete(rest) }
+        if demoMe == nil, head == "/side" { return sideCommand(rest, labels: labels) }
+        if demoMe == nil, head == "/close" { return closeCommand() }
         if head == "/contact" || head == "/uncontact" { return contactCommand(head, rest, labels: labels) }
         if head == "/room", rest.trimmingCharacters(in: .whitespaces).isEmpty {
             guard state != nil else { return note(.error, "not in a room") }
@@ -1244,7 +1435,13 @@ final class ChatController {
             onRoomReloaded?(room)
         case .left(let room, let name, let reason, let detail):
             // A room you left or were banned from won't be rejoined: forget its key.
-            if reason == "left" || reason == "banned" { RoomKeychain.remove(for: room) }
+            if reason == "left" || reason == "banned" || reason == "closed" { RoomKeychain.remove(for: room) }
+            if reason == "closed" {
+                note(.info, "the side room with \(sideWith[room].map(personLabel) ?? "them") was closed")
+                sideWith[room] = nil
+                savedRooms.removeAll { $0.id == room }
+                return removeRoom(room)
+            }
             let detail = detail.map { ": \($0)" } ?? ""
             switch reason {
             case "left": note(.info, "left #\(name)")
@@ -1255,7 +1452,7 @@ final class ChatController {
             }
             removeRoom(room)
         case .mention(let item) where !rooms.contains(item.room.id):
-            note(.mention, "\(item.message.author.name) mentioned you in #\(item.room.name)")
+            if !offerIfSide(item) { note(.mention, "\(item.message.author.name) mentioned you in #\(item.room.name)") }
         case .notice(_, let notice):
             // Only these come from the server itself; everything else is user content.
             note(.server, "SERVER \(notice.code): \(notice.text)")

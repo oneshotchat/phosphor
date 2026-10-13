@@ -258,6 +258,29 @@ private func makeClient() throws -> OSCClient {
         #expect(Deletion(role: "admin").line() == "message removed by a server admin")
     }
 
+    @Test func sideRoomNameMatchesTheProtocolVector() throws {
+        let a = "aoqqpp7tzyil4hlq3umoos6atft6jvrqtosq2xy53sdgiesvgg4a"
+        let b = "fgwlvykbxtfpbmrodkkngtily43b4utnbp7bfsexss6jgiuwnxlq"
+        #expect(SideRoom.name(a, b, server: "https://api.oneshotchat.com") == "side-lurgsjymax2aqlqcs3cvklx7k4")
+        #expect(SideRoom.name(b, a, server: "https://api.oneshotchat.com") == "side-lurgsjymax2aqlqcs3cvklx7k4")
+        #expect(SideRoom.name(a, b, server: "http://localhost:8080") != "side-lurgsjymax2aqlqcs3cvklx7k4")
+    }
+
+    @Test func creatingASideRoomSendsSideWithAndClosingPosts() async throws {
+        let room = #"{"room":{"id":"r9","name":"side-x","latest_seq":0,"side":{"members":["me","them"]}},"role":null,"created":true}"#
+        StubServer.reset(loginReplies + [.init(status: 201, json: room), .init(status: 204)])
+        let client = try makeClient()
+        let joined = try await client.join("side-x", create: .side(with: "them"))
+        let body = StubServer.seen.last!.body["create"] as? [String: Any]
+        #expect(body?["side_with"] as? String == "them")
+        #expect(body?["retention_seconds"] as? Int == 604800)
+        #expect(body?.keys.sorted() == ["retention_seconds", "side_with"])
+        #expect(joined.room.side == SideInfo(members: ["me", "them"]))
+        try await client.close(room: "r9")
+        #expect(StubServer.seen.last!.method == "POST")
+        #expect(StubServer.seen.last!.path == "/v1/rooms/r9/close")
+    }
+
     @MainActor @Test func leavingReportsTheRoomName() async throws {
         let room = #"{"room":{"id":"r1","name":"secret","latest_seq":5},"role":null,"created":false}"#
         StubServer.reset(loginReplies + [

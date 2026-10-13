@@ -23,7 +23,7 @@ struct HUD {
         // Status, top left.
         var y = viewport.y - my - 16 * scale
         let state = controller.state
-        let room = state.map { "#" + SafeText.clean($0.room.name) } ?? "no room"
+        let room = state.map { controller.title($0.room) } ?? "no room"
         let here = state.map { "\($0.occupants.count) here" } ?? ""
         let link = switch controller.connection {
         case .connected: "live"
@@ -51,7 +51,7 @@ struct HUD {
         // Joined rooms, top right: ⌘ number, name, unread count, and @ if you were mentioned.
         var items: [(String, SIMD3<Float>, Float)] = []
         for (i, room) in controller.rooms.enumerated() {
-            let name = controller.state(room).map { "#" + SafeText.clean($0.room.name) } ?? "…"
+            let name = controller.state(room).map { controller.title($0.room) } ?? "…"
             let activity = controller.activity[room] ?? ChatController.Activity()
             let active = room == controller.activeRoom
             var item = "\(i + 1) \(name)"

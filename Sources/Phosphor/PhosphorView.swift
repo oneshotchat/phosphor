@@ -227,7 +227,7 @@ final class PhosphorView: MTKView, NSTextInputClient {
         case #selector(insertNewline(_:)):
             if controller?.contactPrompt != nil {
                 // Answering a rename or remove prompt.
-                controller?.answerContactPrompt(input.text)
+                controller?.answerContactPrompt(input.text, labels: labelsToFingerprints())
                 if controller?.contactPrompt == nil { input.clear() }
             } else if input.text.isEmpty, controller?.showingContacts == true, controller?.contactsPage == 1,
                       controller?.selectedPlace != nil {
@@ -241,6 +241,7 @@ final class PhosphorView: MTKView, NSTextInputClient {
             } else if let controller {
                 controller.submit(input.text, labels: labelsToFingerprints())
                 input.clear()
+                if let next = controller.takePendingInput() { input.insert(next) }     // e.g. /side's ready-made @mention
             }
         // ⌥⏎ and ⌃⏎ also add a line, as in other Mac text fields.
         case #selector(insertNewlineIgnoringFieldEditor(_:)), #selector(insertLineBreak(_:)):
@@ -319,6 +320,7 @@ final class PhosphorView: MTKView, NSTextInputClient {
     }
 
     private func refreshCompletions() {
+        controller?.inputEmpty = input.text.isEmpty
         if let browser = controller?.browser, browser.isOpen {
             browser.setQuery(input.text)      // in the browser, typing filters rooms
             return

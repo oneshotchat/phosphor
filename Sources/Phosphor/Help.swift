@@ -28,6 +28,7 @@ enum Help {
         Command(name: "/join", args: "room [key]", summary: "join a room, or create it", topic: .rooms),
         Command(name: "/join", args: "room invite code", summary: "join with an invite code", topic: .rooms),
         Command(name: "/leave", args: "[room]", summary: "leave this room, or the one named", topic: .rooms),
+        Command(name: "/close", args: "", summary: "close this side room, for both of you (asks first)", topic: .rooms),
         Command(name: "/room", args: "", summary: "this room's settings and people (⌘I)", topic: .rooms),
         Command(name: "/help", args: "[topic]", summary: "this help (⌘/) · topics: chat, rooms, mod, keys", topic: .rooms),
 
@@ -36,6 +37,7 @@ enum Help {
         Command(name: "/unreact", args: "[id] 👍", summary: "take your reaction back", topic: .chat),
         Command(name: "/edit", args: "[id] text", summary: "edit your selected or latest message", topic: .chat),
         Command(name: "/sedit", args: "[id] text", summary: "edit it, signed", topic: .chat),
+        Command(name: "/side", args: "[@who]", summary: "a room for just you and them (or join one you've been offered)", topic: .chat),
         Command(name: "/delete", args: "[id] [reason]", summary: "delete your message (or anyone's, as an operator); asks first", topic: .chat),
         Command(name: "/sign", args: "text", summary: "send one message signed", topic: .chat),
         Command(name: "/contact", args: "[@who] [petname]", summary: "save someone, or rename them (⌘S on a people wall)", topic: .chat),

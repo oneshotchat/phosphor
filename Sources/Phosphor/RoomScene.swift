@@ -299,7 +299,11 @@ final class RoomScene {
         // Rolled up in the background: its name and ⌘ number on the floor in front, a
         // brighter base while it has unread messages, and a beacon if you were mentioned.
         if background > 0.05 {
-            var label = "⌘\(index + 1) #" + SafeText.clean(state.room.name)
+            // A side room is named for who it's with, not by its (made-up) name.
+            let title = state.room.isSide
+                ? "side room · " + (SideRoom.other(in: state.room, me: me).flatMap { labels[$0] } ?? "")
+                : "#" + SafeText.clean(state.room.name)
+            var label = "⌘\(index + 1) " + title
             if activity.unread > 0 { label += "  •\(activity.unread)" }
             if activity.mentioned { label += "  @you" }
             let height: Float = 1.1

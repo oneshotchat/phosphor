@@ -64,8 +64,9 @@ public final class ChatSession {
     /// Joins (creating if free), loads recent history, then catches up from the join point.
     /// Pass `expect` with a remembered fingerprint to refuse a different room reusing the name.
     @discardableResult
-    public func join(_ name: String, expect: String? = nil, key: String? = nil, invite: String? = nil) async throws -> RoomState {
-        let result = try await client.join(name, expect: expect, key: key, invite: invite)
+    public func join(_ name: String, expect: String? = nil, key: String? = nil, invite: String? = nil,
+                     create: RoomCreateOptions? = nil) async throws -> RoomState {
+        let result = try await client.join(name, expect: expect, key: key, invite: invite, create: create)
         let id = result.room.id
         roomKeys[id] = key
         var state = RoomState(room: result.room, role: result.role)
