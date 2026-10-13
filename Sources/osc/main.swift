@@ -8,7 +8,7 @@ import OSCCore
 //   osc whoami              your fingerprint (creates an identity on first use)
 //   osc chat <room>         join and chat; type /help inside (--key <room key> for keyed rooms)
 //
-// Options: --server <url>  --name <display name>  --identity <path>
+// Options: --server <url>  --name <display name>  --identity <path>  --fingerprints
 
 let version = "0.2.0"
 setvbuf(stdout, nil, _IOLBF, 0)   // line-buffered even when piped, so live events show promptly
@@ -24,6 +24,9 @@ func option(_ flag: String) -> String? {
 let server = option("--server").flatMap(URL.init(string:)) ?? OSCClient.defaultServer
 let nameOption = option("--name")
 let roomKey = option("--key")
+/// `--fingerprints`: show each author's full fingerprint, to check who really wrote it.
+let showFingerprints = args.contains("--fingerprints")
+args.removeAll { $0 == "--fingerprints" }
 let identityURL = option("--identity").map { URL(fileURLWithPath: $0) }
     ?? ProcessInfo.processInfo.environment["PHOSPHOR_IDENTITY"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
     ?? IdentityFile.defaultURL
@@ -97,7 +100,8 @@ final class Chat {
         let edited = m.editedAt != nil ? " (edited)" : ""
         let reactions = (m.reactions ?? []).map { "\(safe($0.reaction))×\($0.count)" }.joined(separator: " ")
         let text = MentionText.display(m.text, label: label)
-        return "[\(m.id)] \(safe(label(m.author.identity))): \(safe(text))\(edited)\(signature)\(reactions.isEmpty ? "" : "  " + reactions)"
+        let who = safe(label(m.author.identity)) + (showFingerprints ? " (\(m.author.identity))" : "")
+        return "[\(m.id)] \(who): \(safe(text))\(edited)\(signature)\(reactions.isEmpty ? "" : "  " + reactions)"
     }
 
     func run() async throws {
