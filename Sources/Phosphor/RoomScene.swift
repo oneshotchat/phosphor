@@ -385,7 +385,7 @@ final class RoomScene {
                 continue
             }
             let label = labelLine(message, labels: labels, origin: origin)
-            let labelWidth = textWidth(label.name + label.rest, height: labelHeight)
+            let labelWidth = textWidth(label.name + label.time + label.rest, height: labelHeight)
                 + (mark(message.author.identity) != nil ? labelHeight * 1.6 : 0)
             let width = min(maxWidth, max(textLines.map { textWidth($0, height: textHeight) }.max() ?? 0,
                                           labelWidth,
@@ -420,7 +420,7 @@ final class RoomScene {
     }
 
     private func buildPanel(into g: inout FrameGeometry, message: Message, lines textLines: [String], hidden: Int,
-                            label: (name: String, rest: String),
+                            label: (name: String, time: String, rest: String),
                             s0: Float, s1: Float, y0: Float, y1: Float, surface: Surface, sky: Float,
                             author: SIMD3<Float>?, theme: Theme, me: String, origin: String, focused: Bool,
                             eye: SIMD3<Float>, now: Float, retention: Int?) {
@@ -480,6 +480,10 @@ final class RoomScene {
                       intensity: 1.3 * bright)
             restS += labelHeight * 1.6
         }
+        // How long ago it was posted, dimmer than the rest.
+        g.surfaceText(label.time, atlas: atlas, surface: surface, s: restS, baseline: baseline, height: labelHeight,
+                      color: labelColor, intensity: 0.5 * bright, eye: eye)
+        restS += textWidth(label.time, height: labelHeight)
         g.surfaceText(label.rest, atlas: atlas, surface: surface, s: restS, baseline: baseline, height: labelHeight,
                       color: labelColor, intensity: 0.9 * bright, eye: eye)
         baseline -= labelHeight * 0.4 + textHeight * 1.05
@@ -601,9 +605,11 @@ final class RoomScene {
         return status
     }
 
-    /// A message's header: the author's name, then (after any admin shield) its marks and id.
-    private func labelLine(_ m: Message, labels: [String: String], origin: String) -> (name: String, rest: String) {
+    /// A message's header: the author's name, then (after any mark) how long ago it was
+    /// posted, then its signature mark, "(edited)" and id.
+    private func labelLine(_ m: Message, labels: [String: String], origin: String) -> (name: String, time: String, rest: String) {
         let name = SafeText.clean(labels[m.author.identity] ?? m.author.name)
+        let time = m.createdAt.map { "  " + Self.age(-$0.timeIntervalSinceNow) } ?? ""
         var rest = ""
         switch signatureStatus(m, origin: origin) {
         case .valid: rest += " ✓signed"
@@ -611,7 +617,16 @@ final class RoomScene {
         case .unsigned: break
         }
         if m.editedAt != nil { rest += " (edited)" }
-        return (name, rest + "  [\(m.id)]")
+        return (name, time, rest + "  [\(m.id)]")
+    }
+
+    /// "now", "4m", "3h", "2d": short enough for a message header.
+    static func age(_ seconds: TimeInterval) -> String {
+        let s = Int(max(0, seconds))
+        if s < 60 { return "now" }
+        if s < 3600 { return "\(s / 60)m" }
+        if s < 86400 { return "\(s / 3600)h" }
+        return "\(s / 86400)d"
     }
 
     static func moreHint(_ hidden: Int) -> String { "… \(hidden) more line\(hidden == 1 ? "" : "s") · ↑↓ select it to read all" }

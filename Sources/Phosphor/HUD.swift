@@ -1,3 +1,4 @@
+import Foundation
 import OSCCore
 import simd
 
@@ -177,7 +178,30 @@ struct HUD {
         if input.completions.isEmpty, let focus = controller.focus {
             let read = focusIsLong ? "  ·  ⌘R reads it all" : ""
             text("selected [\(focus)]\(read)  ·  /react 👍  ·  /edit text  ·  ⌘⌫ delete  ·  ↑↓ move  ·  esc clear", x0 + 12 * scale, cy, 12, theme.accent, 0.9)
+            // When it was posted (and edited), in full, in your time zone.
+            if let m = controller.state?.messages[focus], let posted = m.createdAt {
+                var when = "posted " + Self.when(posted)
+                if let edited = m.editedAt { when += "  ·  edited " + Self.when(edited, after: posted) }
+                text(when, x0 + 12 * scale, cy + 17 * scale, 12, theme.accent, 0.65)
+            }
         }
+    }
+
+    private static let timeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("jj:mm")
+        return f
+    }()
+    private static let dayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("EEE d MMM")
+        return f
+    }()
+
+    /// "14:32, Tue 13 Oct"; just "14:35" for an edit on the same day as the post.
+    static func when(_ date: Date, after earlier: Date? = nil) -> String {
+        if let earlier, Calendar.current.isDate(date, inSameDayAs: earlier) { return timeFormat.string(from: date) }
+        return timeFormat.string(from: date) + ", " + dayFormat.string(from: date)
     }
 
     /// The browser's list, on the right: filtered rooms with who's there, recent activity
