@@ -49,7 +49,7 @@ Messages are signed by default (**Phosphor → Sign Messages**). Phosphor checks
 |---|---|
 | Return | Send |
 | ⇧Return | New line |
-| Tab | Accept a completion, such as an `@name` |
+| Tab | Accept a completion, such as an `@name` or a quick reaction |
 | ⌘L | Room browser (↑↓ or ←→ to choose, Return to join, Esc to close) |
 | ⌘← / ⌘→, ⌘1–⌘9 | Switch rooms |
 | ⌘I | Room info, and beside it the room's people (←→); also `/room` |
@@ -69,10 +69,12 @@ Scroll up and down to fly along the wall, sideways to orbit, and with ⌥ (or a 
 
 ## Commands
 
+Emoji shortcodes turn into emoji as you type, in the input where you can see it: `:+1:` 👍, `:heart:` ❤️, `:tada:` 🎉, `:eyes:` 👀, `:fire:` 🔥 and other common GitHub and Slack names. The macOS emoji picker (🌐 E or ⌃⌘Space) works too.
+
 Type `/` to see the commands, each with what it does; Tab takes the highlighted one, and once a command is typed its usage stays above the input. **⌘/** (or `/help`) raises help out of the floor as a row of walls between you and the room, one each for chat, rooms, operators and keys, and flies you to it: ←→ flies along the row, and `/help chat`, `rooms`, `mod` or `keys` goes straight to one. With Reduce Motion on, it's a flat panel instead. Operator commands are only suggested in rooms where you're an operator. The main ones:
 
 - `/join room [key or invite code]`, `/leave`, `/nick name`
-- `/edit [id] text`, `/react [id] 👍`, `/unreact`, `/delete [id] [reason]` (your messages, or anyone's as an operator; a deleted message shows who removed it)
+- `/edit [id] text`, `/react [id] 👍` (type `/react ` and Tab picks 👍; ↑↓ for ❤️ 😂 🎉 👀 🔥 🙏 ✅), `/unreact`, `/delete [id] [reason]` (your messages, or anyone's as an operator; a deleted message shows who removed it)
 - `/sign text` or `/unsigned text` to override the signing setting for one message
 - Operators: `/topic`, `/room` (visibility, access, speaking mode, retention), `/invite`, `/op`, `/deop`, `/voice`, `/devoice`, `/mute`, `/unmute`, `/ban`, `/unban`, `/allow`, `/kick`
 

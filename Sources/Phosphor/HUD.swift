@@ -149,6 +149,18 @@ struct HUD {
         // Autocomplete, stacked above the box: people after @, commands after /.
         var cy = y1 + 10 * scale
         switch input.completionKind {
+        case .reaction:
+            // Quick reactions, in a row: Tab takes the highlighted one, ←→ or ↑↓ move.
+            var x = x0 + 12 * scale
+            for (i, item) in Emoji.quickReactions.enumerated() {
+                let selected = i == input.completionIndex
+                if selected { text("▸", x, cy, 14, theme.accent, 1.3); x += width("▸ ", 14) }
+                text(item.emoji, x, cy, 16, theme.primary, selected ? 1.4 : 0.8)
+                x += width(item.emoji, 16) + 14 * scale
+            }
+            let name = Emoji.quickReactions[min(input.completionIndex, Emoji.quickReactions.count - 1)].name
+            text("\(name)  ·  ↑↓ choose  ·  tab takes it  ·  or type one, or :shortcode:", x + 10 * scale, cy, 12, theme.primary, 0.6)
+            cy += 22 * scale
         case .mention:
             for (i, label) in input.completions.enumerated() {
                 let selected = i == input.completionIndex

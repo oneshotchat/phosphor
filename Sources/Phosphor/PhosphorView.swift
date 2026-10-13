@@ -6,7 +6,7 @@ import OSCCore
 /// input APIs count), the IME's in-progress composition, and autocomplete for mentions
 /// and commands.
 struct InputLine {
-    enum CompletionKind { case mention, command }
+    enum CompletionKind { case mention, command, reaction }
 
     private(set) var text = ""
     private(set) var caret = 0
@@ -76,8 +76,32 @@ struct InputLine {
         return text[..<space].lowercased()
     }
 
+    /// Right after `/react ` (or `/react 12 `, or `/unreact `), with nothing typed for the
+    /// reaction yet: where a quick reaction goes.
+    private var reactionSpot: Range<String.Index>? {
+        let before = textBeforeCaret
+        guard before.hasPrefix("/react ") || before.hasPrefix("/unreact "), before.hasSuffix(" ") else { return nil }
+        let words = before.split(separator: " ")
+        guard words.count == 1 || (words.count == 2 && Int(words[1]) != nil) else { return nil }
+        return caretIndex..<caretIndex
+    }
+
+    /// Turns a `:shortcode:` just typed (ending at the caret) into its emoji, in place.
+    mutating func expandShortcode() {
+        let before = textBeforeCaret
+        guard before.hasSuffix(":"), let start = before.dropLast().lastIndex(of: ":") else { return }
+        let code = String(before[start...])
+        guard !code.contains(" "), case let emoji = Emoji.expand(code), emoji != code else { return }
+        text.replaceSubrange(start..<caretIndex, with: emoji)
+        caret = start.utf16Offset(in: text) + emoji.utf16.count
+    }
+
     mutating func updateCompletions(labels: [String], commands: [String] = []) {
-        if let query = commandQuery {
+        if reactionSpot != nil {
+            if completionKind != .reaction { completionIndex = 0 }
+            completionKind = .reaction
+            completions = Emoji.quickReactions.map(\.emoji)
+        } else if let query = commandQuery {
             if completionKind != .command { completionIndex = 0 }
             completionKind = .command
             completions = commands.filter { $0.hasPrefix(query) }
@@ -98,6 +122,7 @@ struct InputLine {
         switch completionKind {
         case .command: return commandQuery.map { !completions.contains($0) } ?? false
         case .mention: return mentionQuery.map { !completions.contains($0.prefix) } ?? false
+        case .reaction: return reactionSpot != nil
         }
     }
 
@@ -114,6 +139,10 @@ struct InputLine {
             guard let query = mentionQuery else { return }
             range = query.range
             replacement = "@" + completions[completionIndex] + " "
+        case .reaction:
+            guard let spot = reactionSpot else { return }
+            range = spot
+            replacement = completions[completionIndex]
         }
         text.replaceSubrange(range, with: replacement)
         caret = range.lowerBound.utf16Offset(in: text) + replacement.utf16.count
@@ -185,8 +214,8 @@ final class PhosphorView: MTKView, NSTextInputClient {
 
     /// Dev: puts text in the input as if typed (snapshots of the composer).
     func devType(_ text: String) {
-        input.insert(text)
-        refreshCompletions()
+        // A key at a time, as typing does, so shortcodes and suggestions behave the same.
+        for ch in text { insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0)) }
     }
 
     /// Dev: presses Return (send, or the browser's join) or Tab (take the completion).
@@ -343,7 +372,9 @@ final class PhosphorView: MTKView, NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         if controller?.contactPrompt?.isQuestion == true { return }     // a yes/no question: ⏎ or esc
         input.marked = ""
-        input.insert((string as? NSAttributedString)?.string ?? string as? String ?? "")
+        let typed = (string as? NSAttributedString)?.string ?? string as? String ?? ""
+        input.insert(typed)
+        if typed == ":", controller?.contactPrompt == nil { input.expandShortcode() }    // :+1: → 👍, as you type
         refreshCompletions()
     }
 

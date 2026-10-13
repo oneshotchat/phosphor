@@ -1153,7 +1153,8 @@ final class ChatController {
                         onOwnMessage?(edited.room, edited, true)
                     }
                 case "/react", "/unreact":
-                    let (target, reaction) = targetMessage(rest, mine: false)
+                    let (target, typed) = targetMessage(rest, mine: false)
+                    let reaction = Emoji.expand(typed.trimmingCharacters(in: .whitespaces))      // :+1: pasted whole
                     guard let target, !reaction.isEmpty else { return note(.error, "usage: /react [id] 👍") }
                     guard !target.isDeleted else { return note(.error, "[\(target.id)] was deleted: it can't be reacted to") }
                     if head == "/react" { try await session?.react(reaction, to: target) } else { try await session?.unreact(reaction, from: target) }
