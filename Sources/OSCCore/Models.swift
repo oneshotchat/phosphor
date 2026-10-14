@@ -530,3 +530,19 @@ public struct IdentityInfo: Codable, Sendable, Equatable {
         self.status = status
     }
 }
+
+/// A room where you hold a role (`GET /v1/me/rooms`), unlisted ones and side rooms included.
+public struct MyRoom: Decodable, Sendable, Equatable {
+    public var room: Room
+    public var role: Role?
+
+    public init(room: Room, role: Role?) {
+        self.room = room
+        self.role = role
+    }
+}
+
+public struct MyRooms: Decodable, Sendable {
+    public var rooms: [MyRoom]
+    public var truncated: Bool?
+}

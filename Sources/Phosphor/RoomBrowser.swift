@@ -7,10 +7,17 @@ import OSCCore
 @MainActor
 final class RoomBrowser {
     enum Entry: Equatable {
+        /// A room where you hold a role (listed or not), from GET /v1/me/rooms.
+        case mine(Room, Role?)
         case listed(Room)
         case byName(String)
 
-        var id: String? { if case .listed(let room) = self { room.id } else { nil } }
+        var id: String? {
+            switch self {
+            case .mine(let room, _), .listed(let room): room.id
+            case .byName: nil
+            }
+        }
     }
 
     /// A room to join: its name, and the fingerprint it was listed with (pinned, so a name
@@ -101,11 +108,14 @@ final class RoomBrowser {
     /// Listed rooms you haven't joined that match the filter (name or topic), then the
     /// typed name itself if it's a valid room name that isn't listed.
     var entries: [Entry] {
-        let rooms = controller.unjoinedListed.filter {
-            query.isEmpty || $0.name.contains(query) || ($0.topic ?? "").lowercased().contains(query)
+        func matches(_ room: Room) -> Bool {
+            query.isEmpty || room.name.contains(query) || (room.topic ?? "").lowercased().contains(query)
+                || (room.isSide && controller.title(room).lowercased().contains(query))
         }
-        var entries = rooms.map(Entry.listed)
-        if Self.isRoomName(query), !rooms.contains(where: { $0.name == query }) {
+        let mine = controller.yourRooms.filter { matches($0.room) }
+        let rooms = controller.unjoinedListed.filter(matches)
+        var entries = mine.map { Entry.mine($0.room, $0.role) } + rooms.map(Entry.listed)
+        if Self.isRoomName(query), !rooms.contains(where: { $0.name == query }), !mine.contains(where: { $0.room.name == query }) {
             entries.append(.byName(query))
         }
         return entries
@@ -150,6 +160,12 @@ final class RoomBrowser {
             prompt = .invite(Target(name: room.name, id: room.id), wrong: false)
         case .listed(let room):
             attempt(Target(name: room.name, id: room.id))
+        case .mine(let room, _) where room.isSide:
+            controller.joinSideFromBrowser(room)
+        case .mine(let room, _):
+            // Your role lets you in (an invitation, or running it); a keyed room may still
+            // want its key, which is asked for if so.
+            attempt(Target(name: room.name, id: room.id), key: RoomKeychain.key(for: room.id))
         case .byName(let name):
             attempt(Target(name: name, id: nil))
         case nil:
@@ -182,6 +198,9 @@ final class RoomBrowser {
             }
         }
     }
+
+    /// How a room is named in the list: "#name", or "side room · neo".
+    func title(_ room: Room) -> String { controller.title(room) }
 
     /// What the input line says before the text.
     var inputPrompt: String {

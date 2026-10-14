@@ -152,6 +152,12 @@ public actor OSCClient {
         try await call("GET", "/v1/identities/\(segment(fingerprint))")
     }
 
+    /// The live rooms where you hold a role: operator, voiced, invited, muted or banned,
+    /// unlisted ones and side rooms included. Only ever your own.
+    public func myRooms() async throws -> MyRooms {
+        try await call("GET", "/v1/me/rooms")
+    }
+
     /// Everyone with a role in the room, present or not. Anyone in the room may ask.
     public func roles(room: String) async throws -> [RoleEntry] {
         let list: RoleList = try await call("GET", "/v1/rooms/\(segment(room))/roles")

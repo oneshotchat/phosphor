@@ -235,6 +235,17 @@ private func makeClient() throws -> OSCClient {
         #expect(bare == [RoleEntry(identity: "ghi", role: .voice)])
     }
 
+    @Test func myRoomsListsRoomsWithARole() async throws {
+        let body = #"{"rooms":[{"room":{"id":"r1","name":"secret","visibility":"unlisted","access":"invite","latest_seq":3},"role":"operator"},{"room":{"id":"r2","name":"side-x","side":{"members":["a","b"]}},"role":"invited"}],"truncated":false}"#
+        StubServer.reset(loginReplies + [.init(json: body)])
+        let mine = try await makeClient().myRooms()
+        #expect(StubServer.seen.last!.path == "/v1/me/rooms")
+        #expect(mine.rooms.map(\.room.name) == ["secret", "side-x"])
+        #expect(mine.rooms[0].role == .operator)
+        #expect(mine.rooms[1].room.isSide)
+        #expect(mine.truncated == false)
+    }
+
     @Test func identityLookup() async throws {
         StubServer.reset(loginReplies + [.init(json: #"{"id":"wu4yxnhl","name":"angus","status":"active"}"#)])
         let client = try makeClient()

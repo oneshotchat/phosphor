@@ -724,7 +724,15 @@ final class Renderer: NSObject, MTKViewDelegate {
     private func buildGhosts(into g: inout FrameGeometry, dt: Float, aspect: Float, fovy: Float) {
         let browser = controller.browser
         if browser.isOpen {
-            ghostRooms = browser.entries.compactMap { if case .listed(let room) = $0 { room } else { nil } }
+            // Rooms you could join stand in a row: yours (but not side rooms, which are
+            // just the two of you) and listed ones.
+            ghostRooms = browser.entries.compactMap {
+                switch $0 {
+                case .listed(let room): room
+                case .mine(let room, _) where !room.isSide: room
+                default: nil
+                }
+            }
         }
         ghostAlpha += ((browser.isOpen ? 1 : 0) - ghostAlpha) * min(1, dt * 4)
         guard ghostAlpha > 0.01 else {

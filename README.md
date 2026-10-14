@@ -21,7 +21,7 @@ cd phosphor
 swift run -c release Phosphor
 ```
 
-Phosphor opens full screen at the room browser. Pick a room and press Return to join it.
+Phosphor opens full screen at the room browser. Pick a room and press Return to join it. Rooms where you hold a role come first under **Your rooms**, unlisted ones and side rooms included (the server keeps that list, so it follows you to another Mac): ones you run, ones you've been invited to or given voice in.
 
 - `swift run Phosphor lobby` joins a room straight away.
 - `swift run Phosphor --demo` runs offline, with made-up rooms and people. Nothing is sent to a server.

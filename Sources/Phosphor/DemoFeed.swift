@@ -316,6 +316,18 @@ final class DemoFeed {
 
     /// A made-up public room listing for the browser: busiest first, some needing a key or
     /// an invite.
+    /// The demo's rooms where you hold a role: an unlisted one you run, and the listed
+    /// invite-only room you've been invited to.
+    static func myRooms(listed: [Room]) -> [MyRoom] {
+        let unlisted = decode(Room.self, [
+            "id": roomID("skunkworks"), "name": "skunkworks", "topic": "the next client, quietly", "visibility": "unlisted",
+            "access": "invite", "speaking": "open", "retention_seconds": 604800, "latest_seq": 40, "occupant_count": 0,
+            "occupants": [] as [Any],
+        ])
+        let invited = listed.first { $0.access == "invite" }
+        return [unlisted.map { MyRoom(room: $0, role: .operator) }, invited.map { MyRoom(room: $0, role: .invited) }].compactMap { $0 }
+    }
+
     /// `regulars` stand in the first listed room too.
     static func listing(regulars: [(fp: String, name: String)] = []) -> [Room] {
         let rooms: [(String, String, Int, Int, String)] = [

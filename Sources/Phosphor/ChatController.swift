@@ -71,7 +71,33 @@ final class ChatController {
     func isAdmin(_ fingerprint: String) -> Bool { admins.contains(fingerprint) }
     private var listedAt: Date?
     /// Listed rooms you haven't joined.
-    var unjoinedListed: [Room] { listed.filter { !rooms.contains($0.id) } }
+    /// Listed rooms you're not in, less any that show under "your rooms".
+    var unjoinedListed: [Room] {
+        let mine = Set(yourRooms.map(\.room.id))
+        return listed.filter { !rooms.contains($0.id) && !mine.contains($0.id) }
+    }
+
+    /// Rooms where you hold a role (GET /v1/me/rooms), unlisted ones and side rooms
+    /// included: how you find them again.
+    private(set) var myRooms: [MyRoom] = []
+
+    /// The ones worth offering in the browser: not ones you're in, and not where you're
+    /// banned or muted (nothing to do there).
+    var yourRooms: [MyRoom] {
+        myRooms.filter { mine in
+            !rooms.contains(mine.room.id) && mine.role != .banned && mine.role != .muted
+        }
+    }
+
+    /// "you run it", "invited", "voiced": your role, for the browser.
+    static func roleWord(_ role: Role?) -> String {
+        switch role {
+        case .operator: "you run it"
+        case .voice: "voiced"
+        case .invited: "invited"
+        default: ""
+        }
+    }
 
     /// Offline scripted rooms (`--demo`); when present they replace the session entirely.
     private var demos: [String: DemoFeed] = [:]
@@ -1221,6 +1247,7 @@ final class ChatController {
         focus = nil
         session = nil
         listed = []                                     // the old server's room listing
+        myRooms = []
         listedAt = nil
         onActiveChanged?(previous, nil)
         Task {
@@ -1263,6 +1290,8 @@ final class ChatController {
         }
         activate(rooms[0])
         listed = DemoFeed.listing(regulars: [neo])
+        // Rooms of yours that aren't listed, or that you were let into, for the browser.
+        myRooms = DemoFeed.myRooms(listed: listed)
         // Demo contacts live in memory only: neo, about everywhere; someone here under a
         // petname; someone who's left; and someone in a listed room.
         var seeds: [ContactBook.Contact] = [.init(fingerprint: neo.fp, petname: "Thomas", name: neo.name, added: Date(),
@@ -1360,9 +1389,17 @@ final class ChatController {
             listed = all
             listedAt = Date()
             noteSightings()
+            if let mine = try? await client.myRooms() { myRooms = mine.rooms }
         } catch {
             note(.error, "couldn't load the room list: \(error)")
         }
+    }
+
+    /// One of your side rooms, picked in the browser: checked, then joined.
+    func joinSideFromBrowser(_ room: Room) {
+        guard let other = SideRoom.other(in: room, me: me) else { return }
+        browser.close()
+        Task { await joinSide(with: other) }
     }
 
     /// Joins a room picked in the browser, pinned to the fingerprint we saw listed so a
@@ -1375,12 +1412,13 @@ final class ChatController {
     /// key or invite code (which it does itself, so those aren't reported as errors).
     func joinFromBrowser(_ target: RoomBrowser.Target, key: String?, invite: String?) async -> JoinOutcome {
         if demoMe != nil {
-            guard let room = listed.first(where: { $0.name == target.name }) else {
+            guard let room = (listed + myRooms.map(\.room)).first(where: { $0.name == target.name }) else {
                 note(.info, "the demo only has its listed rooms")
                 return .failed
             }
             if room.access == "key", (key ?? "").isEmpty { return .needsKey }
-            if room.access == "invite", (invite ?? "").isEmpty { return .needsInvite }
+            let invited = myRooms.contains { $0.room.id == room.id }          // a role lets you in
+            if room.access == "invite", (invite ?? "").isEmpty, !invited { return .needsInvite }
             joinDemo(room)
             return .joined
         }

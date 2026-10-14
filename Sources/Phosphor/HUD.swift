@@ -275,10 +275,25 @@ struct HUD {
         if entries.isEmpty { text("no rooms match", 13, theme.primary, 0.6) }
         let window = 14
         let first = max(0, min(browser.selection - window / 2, entries.count - window))
+        var group = ""
         for (i, entry) in entries.enumerated().dropFirst(first).prefix(window) {
             let selected = i == browser.selection
+            // Headings once there are rooms of yours: yours first, then everyone's.
+            let heading: String = if case .mine = entry { "YOUR ROOMS" } else { "LISTED" }
+            if heading != group, entries.contains(where: { if case .mine = $0 { true } else { false } }) {
+                if !group.isEmpty { y -= 6 * scale }
+                text(heading, 11, theme.primary, 0.55)
+                y -= 17 * scale
+                group = heading
+            }
             var line = selected ? "▸ " : "  "
             switch entry {
+            case .mine(let room, let role):
+                line += browser.title(room)
+                var notes = [ChatController.roleWord(role)]
+                if !room.isSide, room.visibility == "unlisted" { notes.append("unlisted") }
+                if !room.isSide, let here = room.occupantCount { notes.append("\(here) here") }
+                line += "  " + notes.filter { !$0.isEmpty }.joined(separator: " · ")
             case .listed(let room):
                 line += "#" + SafeText.clean(room.name)
                 line += "  \(room.occupantCount ?? 0) here"
